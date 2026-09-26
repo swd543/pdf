@@ -1212,6 +1212,8 @@ input[type="range"] {
 }
 .donate-plain {
   font-family: var(--font-mono);
+  color: var(--accent);
+  border-bottom: 1px dotted var(--accent);
 }
 .donate-memo {
   font-style: normal;

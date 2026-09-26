@@ -76,9 +76,9 @@ export function Shell(props: { children?: JSX.Element }) {
                 ) : (
                   <span class="donate-plain">
                     {d.label} {shortAddr(d.address)}
-                    {d.memo ? <em class="donate-memo">memo {d.memo}</em> : null}
                   </span>
                 )}
+                {d.memo ? <em class="donate-memo">memo {d.memo}</em> : null}
                 <button
                   type="button"
                   class="donate-copy"
