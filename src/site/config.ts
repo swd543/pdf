@@ -25,7 +25,7 @@ export const site = {
   /** Default origin used when VITE_SITE_URL is not set (dev). */
   fallbackUrl: 'http://localhost:3000',
   /** Contact shown on the privacy page (AdSense requires a contact path). */
-  contactEmail: 'you@example.com',
+  contactEmail: 'swd543@gmail.com',
   /** AdSense publisher id; empty string = ad-free build. */
   adsenseClient: (import.meta.env.VITE_ADSENSE_CLIENT as string | undefined) ?? '',
   /**
