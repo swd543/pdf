@@ -7,7 +7,7 @@
  *   GitHub Pages (see docs/DEPLOYMENT.md).
  *
  * `base` supports hosting on a GitHub *project* page:
- *   VITE_BASE=/pdfboogie/ pnpm build
+ *   VITE_BASE=/pdf/ pnpm build
  */
 import { randomBytes } from 'node:crypto';
 import { solidStart } from '@solidjs/start/config';

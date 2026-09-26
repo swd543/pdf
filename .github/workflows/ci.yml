@@ -11,11 +11,13 @@ concurrency:
 
 env:
   # Pages site parameters — used for the deploy build (base path + absolute URLs).
-  # Custom domain: bugaboxes.com (DNS + "Custom domain" in repo Settings → Pages).
-  # The site keeps the /pdfboogie/ sub-path on the custom domain too (GitHub
-  # Pages project sites always do), so the absolute URLs carry it.
-  VITE_BASE: /pdfboogie/
-  VITE_SITE_URL: https://bugaboxes.com/pdfboogie
+  # The repo is named `pdf`, so the project site lives at swd543.github.io/pdf.
+  # Custom alias domain: pdf.bugaboxes.com (CNAME → swd543.github.io, DNS-only;
+  # custom domain set via the Pages API on this repo). The site keeps the /pdf/
+  # sub-path on the custom domain too (GitHub Pages project sites always do),
+  # so the absolute URLs carry it.
+  VITE_BASE: /pdf/
+  VITE_SITE_URL: https://swd543.github.io/pdf
   WASM_PACK_VERSION: "0.13.1"
 
 jobs:
