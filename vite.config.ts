@@ -7,7 +7,7 @@
  *   GitHub Pages (see docs/DEPLOYMENT.md).
  *
  * `base` supports hosting on a GitHub *project* page:
- *   VITE_BASE=/pdf/ pnpm build
+ *   VITE_BASE=/ pnpm build   (Pages deploy: base / — the custom domain pdf.bugaboxes.com is bound to the site root; see .github/workflows/ci.yml)
  */
 import { randomBytes } from 'node:crypto';
 import { solidStart } from '@solidjs/start/config';

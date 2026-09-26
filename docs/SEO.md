@@ -36,8 +36,8 @@ so they appear in the static HTML — not just after hydration.
 - **GitHub Pages serves `404.html`** for unknown paths automatically (the
   Pages "custom 404" behavior), which matches the generated file.
 - `og:url` / `og:image` use `VITE_SITE_URL` when set (CI sets it to the
-  live `https://swd543.github.io/pdf` URL); locally they default to
-  `http://localhost:3000`.
+  canonical `https://pdf.bugaboxes.com` — `swd543.github.io/pdf` is a
+  301 alias for it); locally they default to `http://localhost:3000`.
 - The strict CSP includes `script-src 'self' 'nonce-…'` (fixed build-time
   nonce — see [Architecture](ARCHITECTURE.md)); crawlers that execute JS
   will find the site behaving normally, and non-JS crawlers get the full

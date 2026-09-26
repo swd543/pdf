@@ -1,7 +1,8 @@
 # Deployment
 
-Target: **GitHub Pages** (repo `swd543/pdf` →
-`https://swd543.github.io/pdf`), deployed by GitHub Actions — no
+Target: **GitHub Pages** (repo `swd543/pdf` → live at
+`https://pdf.bugaboxes.com/`, with `https://swd543.github.io/pdf/`
+301-redirecting there), deployed by GitHub Actions — no
 manual artifact uploading.
 
 ## One workflow: `.github/workflows/ci.yml`
@@ -12,10 +13,14 @@ manual artifact uploading.
 | `test` | every push + PR | downloads `pdfcore-pkg` → pnpm 11.13.1 + Node 24 → `typecheck` → `lint` (biome) → unit tests → build with `VITE_BASE=/` → `playwright install --with-deps chromium` → E2E suite against the production `dist` (served on `:8899`) |
 | `deploy` | pushes to `main` | downloads `pdfcore-pkg` → build with `VITE_BASE=/pdf/` + `VITE_SITE_URL=https://swd543.github.io/pdf` → `upload-pages-artifact@v3` → `deploy-pages@v4` |
 
-Two different base paths by design: E2E serves the app from `/` (the
-Playwright `baseURL`), while the live site lives under the `/pdf/`
-sub-path, so asset URLs, the router and the sitemap must all be built for
-that sub-path.
+One base path for both: the custom domain `pdf.bugaboxes.com` is bound to
+the site's **root** by GitHub, so the live site and the E2E harness (the
+Playwright `baseURL`) both serve it from `/`. The default URL
+`swd543.github.io/pdf/…` 301-redirects to `pdf.bugaboxes.com/…` (GitHub's
+custom-domain behavior — the `/pdf` prefix is dropped), which is also why
+the canonical/SEO URLs are the `pdf.bugaboxes.com` ones. If the custom
+domain is ever removed, the site would need `VITE_BASE=/pdf/` to work
+directly under `swd543.github.io/pdf/`.
 
 ## Manual steps (once per repo)
 
@@ -31,7 +36,7 @@ that sub-path.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `VITE_BASE` | `/` | Asset/base path. Set to `/pdf/` for Pages. |
+| `VITE_BASE` | `/` | Asset/base path. The Pages deploy uses `/` (custom domain bound to site root — see above). |
 | `VITE_SITE_URL` | `http://localhost:3000` | Absolute URL used in sitemap, robots and OG tags. |
 | `VITE_ADSENSE_CLIENT` | *(unset → ads inert)* | AdSense client id, e.g. `ca-pub-…`. See [ADS](ADS.md). |
 
