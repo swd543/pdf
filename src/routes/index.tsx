@@ -38,11 +38,11 @@ export default function HomePage() {
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/'))} />
 
       <div class="hero">
-        <h1>PDFBoogie — private PDF tools that never touch a server.</h1>
+        <h1>PDFBoogie — secure, private PDF tools that never touch a server.</h1>
         <p class="lede">
           Compress, convert and sign PDFs for free. Everything runs right here in your browser: your
-          file never leaves your device. No uploads, no accounts, no watermarks — you can verify it
-          in the network tab.
+          file is processed securely and never leaves your device. No uploads, no accounts, no
+          watermarks — you can verify it in the network tab.
         </p>
         <div class="badge-row">
           <span class="badge">

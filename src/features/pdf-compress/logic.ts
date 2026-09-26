@@ -1,5 +1,5 @@
 /**
- * PDF compression logic — two honest modes:
+ * PDF compression logic — two modes:
  *
  *  lossless  – structural re-save via the Rust/WASM core (lopdf): object
  *              streams + xref streams. Content is byte-for-byte unchanged,

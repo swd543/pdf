@@ -1,7 +1,7 @@
 /**
  * Compress PDF tool page.
  *
- * Two honest modes (see `./logic`):
+ * Two modes (see `./logic`):
  *  - lossless: Rust/WASM structural re-save (or pdf-lib fallback)
  *  - strong:   re-render pages to JPEG and rebuild
  */

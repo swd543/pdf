@@ -18,58 +18,58 @@ const ogImage = `${siteUrl}/og.png`;
 
 export const routeMeta: Record<string, RouteMeta> = {
   '/': {
-    title: `${site.name} — Free, Private PDF Tools (100% in Your Browser)`,
+    title: `${site.name} — Free, Secure & Private PDF Tools (100% in Your Browser)`,
     description:
-      'Compress, convert and sign PDFs for free. Image to PDF, PDF to image, PDF compress and sign/fill — ' +
-      'everything runs in your browser. No uploads, no accounts, your file never leaves your device.',
+      'Free, secure PDF tools that run entirely in your browser. Compress, merge, combine, convert and sign PDFs — ' +
+      'no uploads, no accounts. Your file is processed locally and never leaves your device.',
     image: ogImage,
   },
   '/pdf-compress': {
-    title: 'Compress PDF Online — Free, Private, No Upload | PDFBoogie',
+    title: 'Compress PDF Online — Free, Secure & Private, No Upload | PDFBoogie',
     description:
-      'Reduce PDF file size in your browser with a lossless optimizer or a strong re-encode. ' +
-      'Free PDF compress tool: no upload, no watermark, works on any device.',
+      'Reduce PDF file size securely in your browser with a lossless optimizer or a strong re-encode. ' +
+      'Free PDF compress tool: no upload, no watermark, your file never leaves your device.',
     image: ogImage,
   },
   '/image-to-pdf': {
-    title: 'Image to PDF Online — JPG, PNG, WebP to PDF (Private) | PDFBoogie',
+    title: 'Image to PDF Online — JPG, PNG, WebP to PDF (Secure, Private) | PDFBoogie',
     description:
-      'Convert images to PDF for free in your browser. Combine JPG, PNG, WebP, GIF, BMP and AVIF into one ' +
-      'PDF with A4/Letter pages or fit-to-image sizing. No upload — 100% client-side.',
+      'Convert images to PDF for free, right in your browser. Combine JPG, PNG, WebP, GIF, BMP and AVIF into one ' +
+      'PDF with A4/Letter pages or fit-to-image sizing. Secure by design — no upload, 100% client-side.',
     image: ogImage,
   },
   '/pdf-to-image': {
-    title: 'PDF to Image Online — PDF to JPG/PNG (Private, No Upload) | PDFBoogie',
+    title: 'PDF to Image Online — PDF to JPG/PNG (Secure, Private) | PDFBoogie',
     description:
-      'Convert PDF pages to JPG, PNG or WebP in your browser. Pick the resolution, take one page or all ' +
+      'Convert PDF pages to JPG, PNG or WebP securely in your browser. Pick the resolution, take one page or all ' +
       'pages as a ZIP. Free and private: nothing is uploaded.',
     image: ogImage,
   },
   '/pdf-sign': {
-    title: 'Sign PDF Online — Add Signature & Fill PDF Forms (Private) | PDFBoogie',
+    title: 'Sign PDF Online — Add Signature & Fill Forms (Secure, Private) | PDFBoogie',
     description:
       'Add a drawn or typed signature to a PDF and fill form fields — entirely in your browser. ' +
-      'Free, no upload, no account. Works on any device.',
+      'Free and secure: no upload, no account, your document never leaves your device.',
     image: ogImage,
   },
   '/pdf-merge': {
-    title: 'Merge PDF Online — Combine PDFs & JPGs Into One (Private) | PDFBoogie',
+    title: 'Merge PDF Online — Combine PDFs & JPGs (Secure, Private) | PDFBoogie',
     description:
-      'Merge multiple PDF files — and JPG/PNG images — into a single PDF in your browser. Reorder pages, ' +
+      'Merge multiple PDF files — and JPG/PNG images — into a single PDF securely in your browser. Reorder pages, ' +
       'no upload, no watermark. 100% client-side merge.',
     image: ogImage,
   },
   '/pdf-combine': {
-    title: 'Combine PDF Pages — 2-Up, 4-Up, 9-Up, 16-Up (Private) | PDFBoogie',
+    title: 'Combine PDF Pages — 2-Up to 16-Up (Secure, Private) | PDFBoogie',
     description:
       'Combine several PDF pages onto one sheet: pick 2-up to 16-up layouts and the pages fill as many ' +
       'sheets as needed. Runs entirely in your browser — nothing is uploaded.',
     image: ogImage,
   },
   '/pdf-to-doc': {
-    title: 'Convert PDF to DOCX Online — PDF to Word / ODT (Private) | PDFBoogie',
+    title: 'PDF to Word Online — Secure PDF to DOCX/ODT Converter | PDFBoogie',
     description:
-      'Convert a PDF to an editable Word (.docx) or OpenDocument (.odt) file in your browser. ' +
+      'Convert a PDF to an editable Word (.docx) or OpenDocument (.odt) file securely in your browser. ' +
       'Text, headings and basic styles are rebuilt client-side — no upload, no account.',
     image: ogImage,
   },

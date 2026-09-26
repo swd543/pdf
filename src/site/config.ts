@@ -20,8 +20,8 @@ export const site = {
   name: 'PDFBoogie',
   tagline: 'PDF tools that boogie — right in your browser.',
   description:
-    'Free, private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, PDF to Word, and sign or fill PDF forms. ' +
-    '100% client-side — your file never leaves your device.',
+    'Free, secure and private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, PDF to Word, and sign or fill PDF forms. ' +
+    '100% client-side — your file is processed locally and never leaves your device.',
   /** Default origin used when VITE_SITE_URL is not set (dev). */
   fallbackUrl: 'http://localhost:3000',
   /** Contact shown on the privacy page (AdSense requires a contact path). */
