@@ -9,6 +9,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import {
@@ -18,6 +19,7 @@ import {
   recommendMode,
 } from '~/features/pdf-compress/logic';
 import type { DpiOption } from '~/features/pdf-to-image/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, percentSaved, readFileBytes } from '~/lib/files';
 import { renderPageThumbs } from '~/lib/thumbs';
@@ -46,6 +48,10 @@ export default function PdfCompressPage() {
   const [pageCount, setPageCount] = createSignal(0);
   const [quality, setQuality] = createSignal(78);
   const [dpi, setDpi] = createSignal(150);
+
+  // Pick up a result chained from another tool ("Continue with …").
+  // Lambda: `pickFile` is defined below; the hook invokes it in onMount.
+  const chain = useChainedPdf((f) => pickFile([f]));
 
   const pickFile = (files: File[]) => {
     const candidate = files[0];
@@ -128,7 +134,6 @@ export default function PdfCompressPage() {
       const name = `${f.name.replace(/\.pdf$/i, '') || 'document'}-compressed.pdf`;
       setResult({ ...outcome, name });
       setPhase('done');
-      saveBlob(outcome.bytes, name, 'application/pdf'); // auto-download
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -172,6 +177,10 @@ export default function PdfCompressPage() {
           { path: '/pdf-to-image', label: 'PDF to image' },
           { path: '/pdf-sign', label: 'Sign & fill' },
         ]}
+        chainResult={() => {
+          const r = result();
+          return r ? { bytes: r.bytes, name: r.name } : null;
+        }}
       >
         <ToolColumns
           aside={
@@ -251,6 +260,7 @@ export default function PdfCompressPage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <Show when={!file() || phase() === 'empty'}>
                 <DropZone
                   accept="application/pdf,.pdf"

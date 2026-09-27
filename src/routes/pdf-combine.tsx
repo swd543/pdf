@@ -6,11 +6,19 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createMemo, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, CheckIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
-import { type CombineOptions, combinePages, GRIDS, sheetCount } from '~/features/pdf-combine/logic';
+import {
+  type CombineOptions,
+  combinePages,
+  GRIDS,
+  previewSheets,
+  sheetCount,
+} from '~/features/pdf-combine/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
 import { renderPageThumbs } from '~/lib/thumbs';
@@ -56,6 +64,10 @@ export default function CombinePage() {
 
   const grid = () => GRIDS.find((g) => g.id === gridId()) ?? GRIDS[1]!;
 
+  // Pick up a result chained from another tool ("Continue with …").
+  // Lambda: `pickFile` is defined below; the hook invokes it in onMount.
+  const chain = useChainedPdf((f) => pickFile([f]));
+
   const sheetDims = (): [number, number] => {
     const [w, h] = SHEET_SIZES[sheetSize()];
     return orientation() === 'landscape' ? [h, w] : [w, h];
@@ -68,6 +80,51 @@ export default function CombinePage() {
     if (n === 0 || pageCount() === 0) return '';
     const m = sheetCount(n, grid().cols * grid().rows);
     return `${n} ${n === 1 ? 'page' : 'pages'} · ${grid().label} → ${m} ${m === 1 ? 'sheet' : 'sheets'}`;
+  });
+
+  /** Live preview of the combined sheets (auto-updates on every change to
+   *  the selection or layout options). */
+  const [sheetPrev, setSheetPrev] = createSignal<{ urls: string[]; total: number }>({
+    urls: [],
+    total: 0,
+  });
+  let previewGen = 0;
+
+  const refreshPreview = () => {
+    const f = file();
+    const pages = selected();
+    if (!f || pages.length === 0 || pageCount() === 0 || phase() !== 'ready') {
+      setSheetPrev({ urls: [], total: 0 });
+      return;
+    }
+    const gen = ++previewGen;
+    const [sheetW, sheetH] = sheetDims();
+    void (async () => {
+      try {
+        const data = await readFileBytes(f.file);
+        const r = await previewSheets(data, pages, {
+          cols: grid().cols,
+          rows: grid().rows,
+          sheetW,
+          sheetH,
+        });
+        if (gen === previewGen) setSheetPrev(r);
+      } catch {
+        if (gen === previewGen) setSheetPrev({ urls: [], total: 0 });
+      }
+    })();
+  };
+
+  createEffect(() => {
+    // Reading these inside the effect makes it re-run when any changes.
+    file();
+    selected();
+    gridId();
+    sheetSize();
+    orientation();
+    phase();
+    pageCount();
+    refreshPreview();
   });
 
   const pickFile = async (files: File[]) => {
@@ -147,7 +204,6 @@ export default function CombinePage() {
       const resultName = `${f.name.replace(/\.pdf$/i, '') || 'document'}-combined.pdf`;
       setResult({ bytes, name: resultName, sheets });
       setPhase('done');
-      saveBlob(bytes, resultName, 'application/pdf'); // auto-download
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -177,6 +233,10 @@ export default function CombinePage() {
           { path: '/pdf-merge', label: 'Merge PDF' },
           { path: '/pdf-compress', label: 'Compress PDF' },
         ]}
+        chainResult={() => {
+          const r = result();
+          return r ? { bytes: r.bytes, name: r.name } : null;
+        }}
       >
         <ToolColumns
           aside={
@@ -250,6 +310,7 @@ export default function CombinePage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <Show when={!file() || phase() === 'empty'}>
                 <DropZone
                   accept="application/pdf,.pdf"
@@ -327,6 +388,38 @@ export default function CombinePage() {
                     )}
                   </For>
                 </fieldset>
+              </Show>
+
+              <Show when={phase() === 'ready' && selectedCount() > 0 && sheetPrev().total > 0}>
+                <div class="sheet-preview">
+                  <div class="sheet-preview-head">
+                    <span class="sheet-preview-title">Output preview</span>
+                    <span class="sheet-preview-count">
+                      {sheetPrev().total} {sheetPrev().total === 1 ? 'sheet' : 'sheets'}
+                      {sheetPrev().total > sheetPrev().urls.length
+                        ? ` · showing first ${sheetPrev().urls.length}`
+                        : ''}
+                    </span>
+                  </div>
+                  <div class="sheet-prev-row">
+                    <For each={sheetPrev().urls}>
+                      {(u) => (
+                        <img
+                          class="sheet-prev-img"
+                          src={u}
+                          alt="Combined sheet preview"
+                          loading="lazy"
+                          draggable={false}
+                        />
+                      )}
+                    </For>
+                    <Show when={sheetPrev().total > sheetPrev().urls.length}>
+                      <span class="sheet-prev-more">
+                        +{sheetPrev().total - sheetPrev().urls.length} more
+                      </span>
+                    </Show>
+                  </div>
+                </div>
               </Show>
               <Show when={error()}>
                 <div class="error-card" role="alert">

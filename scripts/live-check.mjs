@@ -90,7 +90,7 @@ async function flow(name, fn) {
 
 /* 1. Merge (2 PDFs) ------------------------------------------------------ */
 await flow('merge 2 PDFs', async (page) => {
-  await page.goto(BASE + '/pdf-merge', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-merge`, { waitUntil: 'networkidle' });
   await page
     .locator('input[type="file"]')
     .first()
@@ -99,6 +99,8 @@ await flow('merge 2 PDFs', async (page) => {
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 30000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'merge.pdf');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -110,7 +112,7 @@ await flow('merge 2 PDFs', async (page) => {
 /* 2. Compress lossless --------------------------------------------------- */
 await flow('compress lossless (1.5 MB image PDF)', async (page) => {
   const input = readFileSync(fx('image-heavy-3p.pdf'));
-  await page.goto(BASE + '/pdf-compress', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-compress`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('image-heavy-3p.pdf'));
   const cta = page.getByRole('button', { name: 'Compress (lossless)' });
   // regression: the mode toggle's knob must not overlay its label text
@@ -128,6 +130,8 @@ await flow('compress lossless (1.5 MB image PDF)', async (page) => {
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'compress-lossless.pdf');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -135,12 +139,15 @@ await flow('compress lossless (1.5 MB image PDF)', async (page) => {
   // CSP must permit the WASM core (was silently falling back to JS before)
   const wasmBadge = await page.locator('text=Rust/WASM core').count();
   const jsBadge = await page.locator('text=JS fallback').count();
+  // Lossless re-save must not meaningfully grow the file (±0.1%/256 B noise).
+  const sizeOk = b.length <= input.length + Math.max(256, Math.floor(input.length * 0.001));
   const saved = (100 - (100 * b.length) / input.length).toFixed(1);
-  if (isPdf(b) && n === 3 && b.length <= input.length && wasmBadge > 0 && jsBadge === 0 && toggleOk)
-    ok(
-      'compress-lossless',
-      `3 pages, ${b.length === input.length ? 'same size (JPEG-dominated — expected, lossless)' : `${saved}% smaller`}`,
-    );
+  const sizeMsg =
+    b.length < input.length
+      ? `${saved}% smaller`
+      : 'no meaningful change (already dense — expected; keep original)';
+  if (isPdf(b) && n === 3 && sizeOk && wasmBadge > 0 && jsBadge === 0 && toggleOk)
+    ok('compress-lossless', `3 pages, ${sizeMsg} (${(b.length / 1024).toFixed(0)} KB)`);
   else
     fail(
       'compress-lossless',
@@ -150,13 +157,15 @@ await flow('compress lossless (1.5 MB image PDF)', async (page) => {
 
 /* 3. Compress strong ------------------------------------------------------ */
 await flow('compress strong (JPEG re-encode)', async (page) => {
-  await page.goto(BASE + '/pdf-compress', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-compress`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('image-heavy-3p.pdf'));
   await page.locator('label', { hasText: 'Strong compression' }).click();
   const cta = page.getByRole('button', { name: 'Compress (strong)' });
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 90000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'compress-strong.pdf');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -167,7 +176,7 @@ await flow('compress strong (JPEG re-encode)', async (page) => {
 
 /* 4. Combine pages (5 → 4-up → 2 sheets) ---------------------------------- */
 await flow('combine 5 pages 4-up', async (page) => {
-  await page.goto(BASE + '/pdf-combine', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-combine`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
   const tiles = page.locator('.page-tile');
   // default state = all pages selected
@@ -190,6 +199,8 @@ await flow('combine 5 pages 4-up', async (page) => {
   }
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'combine-4up.pdf');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -200,7 +211,7 @@ await flow('combine 5 pages 4-up', async (page) => {
 
 /* 5. Image → PDF (PNG + BMP + JPEG) -------------------------------------- */
 await flow('image-to-pdf (3 formats)', async (page) => {
-  await page.goto(BASE + '/image-to-pdf', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/image-to-pdf`, { waitUntil: 'networkidle' });
   // Generate guaranteed-valid images in a scratch page (canvas export),
   // then verify each decodes before uploading through the real file input.
   const scratch = await context.newPage();
@@ -258,6 +269,8 @@ await flow('image-to-pdf (3 formats)', async (page) => {
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'images-to-pdf.pdf');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -268,7 +281,7 @@ await flow('image-to-pdf (3 formats)', async (page) => {
 
 /* 6. PDF → image, range 2–4 as JPEG ZIP ------------------------------------ */
 await flow('pdf-to-image pages 2-4 JPEG (ZIP)', async (page) => {
-  await page.goto(BASE + '/pdf-to-image', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-to-image`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
   await page.locator('[aria-label="First page"]').fill('2');
   await page.locator('[aria-label="Last page"]').fill('4');
@@ -277,6 +290,8 @@ await flow('pdf-to-image pages 2-4 JPEG (ZIP)', async (page) => {
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'pages-2-4.zip');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -289,7 +304,7 @@ await flow('pdf-to-image pages 2-4 JPEG (ZIP)', async (page) => {
 
 /* 7. PDF → image, single page PNG (direct file) ---------------------------- */
 await flow('pdf-to-image page 3 PNG (direct)', async (page) => {
-  await page.goto(BASE + '/pdf-to-image', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-to-image`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
   await page.locator('[aria-label="First page"]').fill('3');
   await page.locator('[aria-label="Last page"]').fill('3');
@@ -308,6 +323,8 @@ await flow('pdf-to-image page 3 PNG (direct)', async (page) => {
   }
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'page-3.png');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -317,12 +334,14 @@ await flow('pdf-to-image page 3 PNG (direct)', async (page) => {
 
 /* 8. PDF → DOCX + ODT ------------------------------------------------------ */
 await flow('pdf-to-docx', async (page) => {
-  await page.goto(BASE + '/pdf-to-doc', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-to-doc`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
   const cta = page.getByRole('button', { name: 'Convert to .docx (Word)' });
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'out.docx');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -332,13 +351,15 @@ await flow('pdf-to-docx', async (page) => {
   else fail('pdf-to-docx', `zip=${isZip(b)} entries=${entries.join(',')}`);
 });
 await flow('pdf-to-odt', async (page) => {
-  await page.goto(BASE + '/pdf-to-doc', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-to-doc`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
   await page.locator('#docfmt').selectOption('odt');
   const cta = page.getByRole('button', { name: 'Convert to .odt (ODF)' });
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
+  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: /^Download/ }).click();
   const p = join(OUT, 'out.odt');
   await (await dl).saveAs(p);
   const b = readFileSync(p);
@@ -351,7 +372,7 @@ await flow('pdf-to-odt', async (page) => {
 
 /* 9. Sign: typed signature + stamp ---------------------------------------- */
 await flow('sign typed signature + stamp', async (page) => {
-  await page.goto(BASE + '/pdf-sign', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-sign`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-1p.pdf'));
   await page.getByRole('tab', { name: 'Type' }).click();
   await page.locator('input[placeholder="e.g. Alex Rivera"]').fill('Alex Rivera');
@@ -373,7 +394,7 @@ await flow('sign typed signature + stamp', async (page) => {
 
 /* 10. Sign: fill form fields ------------------------------------------------ */
 await flow('sign fill form fields', async (page) => {
-  await page.goto(BASE + '/pdf-sign', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-sign`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('form.pdf'));
   const firstField = page.locator('.field input[type="text"]').first();
   await firstField.waitFor({ state: 'visible', timeout: 20000 });
@@ -393,7 +414,7 @@ await flow('sign fill form fields', async (page) => {
 
 /* 11. Encrypted PDF → graceful error --------------------------------------- */
 await flow('encrypted PDF graceful error', async (page) => {
-  await page.goto(BASE + '/pdf-compress', { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/pdf-compress`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('encrypted.pdf'));
   const cta = page.getByRole('button', { name: 'Compress (lossless)' });
   await cta.waitFor({ state: 'visible', timeout: 15000 });

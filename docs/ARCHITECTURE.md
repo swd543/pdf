@@ -87,6 +87,25 @@ functions over `Uint8Array` inputs, with a co-located
 core and pdf-lib). Routes are thin: file state, progress, error handling,
 DOM. This keeps the interesting code testable in Node without a browser.
 
+## Tool chaining (explicit downloads, no auto-download)
+
+Tools never auto-download: results wait behind a Download button. The
+footer “Related” section (`ChainSection` in `src/components/ChainBar.tsx`)
+transitions into “Continue with {file}” once a result exists; clicking a
+link stores the result in `src/lib/chain.ts` (module-level, in-memory only)
+and navigates. The target route pulls it up in `onMount` via
+`useChainedPdf(consume)` and prefills its normal file-add path, showing a
+dismisseable “added from your previous step” note. One-shot: the first
+tool that mounts consumes and clears it.
+
+Two non-obvious pitfalls baked into the implementation:
+
+- Solid evaluates a component's function body **once** — a top-level
+  `if (!note()) return null` never re-runs when the signal changes.
+  Visibility must be JSX-level (`<Show>`), not a conditional return.
+- SolidStart 301s `/tool` → `/tool/`; match `location.pathname` against
+  tables only after stripping the trailing slash.
+
 ## Mobile-first details
 
 - The DropZone's file picker is a real `<input type="file">` stretched over

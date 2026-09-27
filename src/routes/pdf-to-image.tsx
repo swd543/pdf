@@ -8,6 +8,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createMemo, createSignal, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import {
@@ -17,6 +18,7 @@ import {
   pdfToImages,
   resolveRange,
 } from '~/features/pdf-to-image/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
 import { disposePdf, pdfDocument } from '~/lib/pdfjs';
@@ -53,6 +55,9 @@ export default function PdfToImagePage() {
   const [dpi, setDpi] = createSignal<DpiOption>(150);
   const [from, setFrom] = createSignal('');
   const [to, setTo] = createSignal('');
+
+  // Pick up a result chained from another tool ("Continue with …").
+  const chain = useChainedPdf((f) => pickFile([f]));
 
   const hasLossy = () => format() !== 'png';
 
@@ -147,7 +152,6 @@ export default function PdfToImagePage() {
 
       setResult({ bytes: out, name, pages: images.length });
       setPhase('done');
-      saveBlob(out, name, name.endsWith('.zip') ? 'application/zip' : undefined); // auto-download
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -270,6 +274,7 @@ export default function PdfToImagePage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <Show when={!file() || phase() === 'empty'}>
                 <DropZone
                   accept="application/pdf,.pdf"

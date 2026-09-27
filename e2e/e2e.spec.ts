@@ -26,6 +26,7 @@ import {
   odtXml,
   pdfInfo,
   pngSize,
+  processAndDownload,
   webpSize,
   zipEntries,
 } from './helpers';
@@ -80,7 +81,7 @@ async function noHOverflow(page: Page) {
 /* ------------------------------------------------------------------ */
 
 const ROUTES: Array<[string, RegExp]> = [
-  ['/', /PDFBoogie/],
+  ['/', /Free, secure/],
   ['/pdf-compress', /Compress PDF/],
   ['/pdf-merge', /Merge PDF/],
   ['/pdf-combine', /Combine pages/],
@@ -260,9 +261,7 @@ test.describe('ordering (merge)', () => {
     await moveRow(page, 1, 'down'); // 1p → index 2: [5p, landscape, 1p]
     expect(await rowNames(page)).toEqual(['text-5p.pdf', 'landscape-1p.pdf', 'text-1p.pdf']);
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 7 pages into one PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Merge 7 pages into one PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(7); // 5 + 1 + 1
     const texts = info.pages.map((p) => p.text);
@@ -287,9 +286,7 @@ test.describe('ordering (merge)', () => {
     await expectRows(page, 3);
     await page.selectOption('#mergePageSize', 'a4');
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 3 pages into one PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Merge 3 pages into one PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(3);
     const near = (a: number, b: number, tol = 2) => Math.abs(a - b) <= tol;
@@ -335,9 +332,7 @@ test.describe('ordering (merge)', () => {
     await left.click();
     await left.click();
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 6 pages into one PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Merge 6 pages into one PDF$/);
     const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
     expect(texts.map((t) => /MARK-(P\d|ONE)/.exec(t)![1])).toEqual([
       'P3',
@@ -350,34 +345,83 @@ test.describe('ordering (merge)', () => {
     assertClean();
   });
 
-  test('page-level drag & drop reorders the strip', async ({ page }) => {
+  test('pointer drag (grip) reorders the strip', async ({ page }) => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-merge');
-    // [1p, 5p×5] → drag the first tile onto the last → insert before it
+    // [1p, 5p×5] → drag the first tile's grip onto the last tile
     await dropFixtures(page, ['text-1p.pdf', 'text-5p.pdf']);
-    await expect(page.locator('.seq-tile')).toHaveCount(6);
+    const tiles = page.locator('.seq-tile');
+    await expect(tiles).toHaveCount(6);
+    const grip = tiles.first().locator('.seq-grip');
+    const last = tiles.last();
+    const g = (await grip.boundingBox())!;
+    const t = (await last.boundingBox())!;
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 12 });
+    await page.mouse.up();
 
-    // deterministic HTML5 DnD: one shared DataTransfer through the real
-    // handlers (dragstart → dragover → drop → dragend)
-    await page.evaluate(() => {
-      const tiles = document.querySelectorAll('.seq-tile');
-      const dt = new DataTransfer();
-      const src = tiles[0]!;
-      const dst = tiles[5]!;
-      src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
-      dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true }));
-      dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
-      src.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }));
-    });
+    // 1p now sits before the last tile
+    const ids = await tiles.evaluateAll((els) => els.map((e) => e.dataset.seqId!));
+    expect(ids[4]!.endsWith('::1')).toBe(true);
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 6 pages into one PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Merge 6 pages into one PDF$/);
     const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
-    expect(texts[0]!).toContain('MARK-P1');
-    // dropped before the last tile: P1..P4, ONE, P5
     expect(texts[4]!).toContain('MARK-ONE');
     expect(texts[5]!).toContain('MARK-P5');
+    assertClean();
+  });
+
+  test('tap multi-select: the selection drags as a block', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-1p.pdf', 'text-5p.pdf']);
+    const tiles = page.locator('.seq-tile');
+    await expect(tiles).toHaveCount(6);
+
+    // tap tile bodies to select 1p + 5p/p1
+    await tiles.nth(0).click();
+    await tiles.nth(1).click();
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(2);
+    await expect(page.locator('.seq-clear')).toContainText('2 selected');
+
+    // drag the second selected tile's grip onto the last tile →
+    // both selected pages land before it (in sequence order)
+    const grip = tiles.nth(1).locator('.seq-grip');
+    const last = tiles.last();
+    const g = (await grip.boundingBox())!;
+    const t = (await last.boundingBox())!;
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 12 });
+    await page.mouse.up();
+
+    const pdf = await processAndDownload(page, /^Merge 6 pages into one PDF$/);
+    const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
+    expect(texts[3]!).toContain('MARK-ONE');
+    expect(texts[4]!).toContain('MARK-P1');
+    expect(texts[5]!).toContain('MARK-P5');
+    assertClean();
+  });
+
+  test('selection arrows nudge the selected block one slot', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-5p.pdf', 'text-1p.pdf']);
+    const tiles = page.locator('.seq-tile');
+    await expect(tiles).toHaveCount(6);
+
+    // select P1 + P2 (tiles 0, 1), nudge right → P3 slips in before them
+    await tiles.nth(0).click();
+    await tiles.nth(1).click();
+    await page.getByRole('button', { name: 'Move page 1 of text-5p.pdf right' }).click();
+
+    const pdf = await processAndDownload(page, /^Merge 6 pages into one PDF$/);
+    const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
+    expect(texts[0]!).toContain('MARK-P3');
+    expect(texts[1]!).toContain('MARK-P1');
+    expect(texts[2]!).toContain('MARK-P2');
+    expect(texts[3]!).toContain('MARK-P4');
     assertClean();
   });
 });
@@ -404,7 +448,7 @@ test.describe('combine pages (n-up)', () => {
     expect(await page.locator('.page-tile[aria-pressed="true"]').count()).toBe(3);
 
     await page.selectOption('#grid', '2');
-    const pdf = await captureDownload(page, () => clickButton(page, /^Combine 3 pages$/));
+    const pdf = await processAndDownload(page, /^Combine 3 pages$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(2); // ceil(3/2)
     expect(Math.round(info.pages[0]!.w)).toBeCloseTo(A4.w, -1);
@@ -415,13 +459,13 @@ test.describe('combine pages (n-up)', () => {
     await page.goto('/pdf-combine');
     await dropFixtures(page, ['text-5p.pdf']);
     await page.selectOption('#grid', '4');
-    const pdf = await captureDownload(page, () => clickButton(page, /^Combine 5 pages$/));
+    const pdf = await processAndDownload(page, /^Combine 5 pages$/);
     expect((await pdfInfo(pdf)).pages).toHaveLength(2); // ceil(5/4)
 
     // restart with the same file, switch grid, recombine
     await clickButton(page, /Adjust and combine again/);
     await page.selectOption('#grid', '16');
-    const pdf2 = await captureDownload(page, () => clickButton(page, /^Combine 5 pages$/));
+    const pdf2 = await processAndDownload(page, /^Combine 5 pages$/);
     expect((await pdfInfo(pdf2)).pages).toHaveLength(1); // ceil(5/16)
   });
 
@@ -431,7 +475,7 @@ test.describe('combine pages (n-up)', () => {
     await page.selectOption('#grid', '9');
     await page.selectOption('#sheetSize', 'a4');
     await page.selectOption('#orientation', 'landscape');
-    const pdf = await captureDownload(page, () => clickButton(page, /^Combine 5 pages$/));
+    const pdf = await processAndDownload(page, /^Combine 5 pages$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(1);
     expect(info.pages[0]!.w).toBeGreaterThan(info.pages[0]!.h);
@@ -478,9 +522,7 @@ test.describe('image to PDF', () => {
     ]);
     await expectRows(page, 4);
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Combine 4 images into a PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Combine 4 images into a PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(4);
     const near = (a: number, b: number, tol = 2) => Math.abs(a - b) <= tol;
@@ -504,9 +546,7 @@ test.describe('image to PDF', () => {
     await moveRow(page, 1, 'up'); // c → index 0
     expect(await rowNames(page)).toEqual(['c.png', 'a.png', 'b.png']);
 
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Combine 3 images into a PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Combine 3 images into a PDF$/);
     const info = await pdfInfo(pdf);
     const near = (a: number, b: number, tol = 2) => Math.abs(a - b) <= tol;
     // first page now the 500×500 image → 375×375 pt
@@ -523,9 +563,7 @@ test.describe('image to PDF', () => {
     ]);
     await expectRows(page, 2);
     await page.selectOption('#pageSize', 'a4');
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Combine 2 images into a PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Combine 2 images into a PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(2);
     for (const pg of info.pages) {
@@ -541,9 +579,7 @@ test.describe('image to PDF', () => {
       { name: 'b.webp', mime: 'image/webp', w: 500, h: 700, paint: 'hgrad' },
     ]);
     await expectRows(page, 2);
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Combine 2 images into a PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Combine 2 images into a PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(2);
   });
@@ -558,9 +594,7 @@ test.describe('image to PDF', () => {
     await removeRow(page, 0);
     await expectRows(page, 1);
     expect(await rowNames(page)).toEqual(['b.png']);
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Combine 1 image into a PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Combine 1 image into a PDF$/);
     expect((await pdfInfo(pdf)).pages).toHaveLength(1);
   });
 });
@@ -576,7 +610,7 @@ test.describe('PDF to image', () => {
     await dropFixtures(page, ['text-1p.pdf']);
     await page.selectOption('#fmt', 'png');
     await page.selectOption('#dpi', '96');
-    const png = await captureDownload(page, () => clickButton(page, /Convert .* to PNG/));
+    const png = await processAndDownload(page, /Convert .* to PNG/);
     const size = pngSize(png);
     expect(size).not.toBeNull();
     // A4 595.28×841.89 pt at 96 dpi → 794×1123 px
@@ -593,10 +627,7 @@ test.describe('PDF to image', () => {
     await page.selectOption('#dpi', '150');
     await page.locator('input[aria-label="First page"]').fill('2');
     await page.locator('input[aria-label="Last page"]').fill('4');
-    const zipBytes = await captureDownload(page, () =>
-      // CTA includes the page count: "Convert pages 2–4 (3) to JPEG"
-      clickButton(page, /Convert pages 2[\u2013-]4 \(3\) to JPEG/),
-    );
+    const zipBytes = await processAndDownload(page, /Convert pages 2[\u2013-]4 \(3\) to JPEG/);
     const entries = zipEntries(zipBytes);
     const names = Object.keys(entries);
     expect(names).toHaveLength(3);
@@ -615,7 +646,7 @@ test.describe('PDF to image', () => {
     await dropFixtures(page, ['landscape-1p.pdf']);
     await page.selectOption('#fmt', 'webp');
     await page.selectOption('#dpi', '96');
-    const webp = await captureDownload(page, () => clickButton(page, /Convert .* to WebP/));
+    const webp = await processAndDownload(page, /Convert .* to WebP/);
     expect(webpSize(webp)).not.toBeNull();
   });
 
@@ -624,7 +655,7 @@ test.describe('PDF to image', () => {
     await dropFixtures(page, ['landscape-1p.pdf']);
     await page.selectOption('#fmt', 'png');
     await page.selectOption('#dpi', '300');
-    const png = await captureDownload(page, () => clickButton(page, /Convert .* to PNG/));
+    const png = await processAndDownload(page, /Convert .* to PNG/);
     const s = pngSize(png)!;
     expect(s.w).toBeGreaterThan(s.h);
     // 841.89pt at 300dpi ≈ 3508px
@@ -641,7 +672,7 @@ test.describe('PDF to doc', () => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-to-doc');
     await dropFixtures(page, ['text-5p.pdf']);
-    const docx = await captureDownload(page, () => clickButton(page, /Convert to \.docx/));
+    const docx = await processAndDownload(page, /Convert to \.docx/);
     const text = docxText(docx);
     for (const m of ['MARK-P1', 'MARK-P2', 'MARK-P3', 'MARK-P4', 'MARK-P5']) {
       expect(text, `missing ${m}`).toContain(m);
@@ -658,7 +689,7 @@ test.describe('PDF to doc', () => {
     await page.goto('/pdf-to-doc');
     await dropFixtures(page, ['text-1p.pdf']);
     await page.selectOption('#docfmt', 'odt');
-    const odt = await captureDownload(page, () => clickButton(page, /Convert to \.odt/));
+    const odt = await processAndDownload(page, /Convert to \.odt/);
     const first = firstZipEntry(odt);
     expect(first.name).toBe('mimetype');
     expect(first.method).toBe(0); // stored, per ODF
@@ -672,7 +703,7 @@ test.describe('PDF to doc', () => {
     await page.goto('/pdf-to-doc');
     await dropFixtures(page, ['scan-2p.pdf']);
     await page.selectOption('#docfmt', 'odt');
-    const odt = await captureDownload(page, () => clickButton(page, /Convert to \.odt/));
+    const odt = await processAndDownload(page, /Convert to \.odt/);
     // must be a valid archive with a content part (even if nearly empty)
     const content = odtXml(odt, 'content.xml');
     expect(content).toContain('office:text');
@@ -691,7 +722,7 @@ test.describe('compress', () => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-compress');
     await dropFixtures(page, ['text-5p.pdf']);
-    const pdf = await captureDownload(page, () => clickButton(page, /Compress \(lossless\)/));
+    const pdf = await processAndDownload(page, /Compress \(lossless\)/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(5);
     assertClean();
@@ -700,7 +731,7 @@ test.describe('compress', () => {
   test('lossless on image-heavy: 3 valid pages', async ({ page }) => {
     await page.goto('/pdf-compress');
     await dropFixtures(page, ['image-heavy-3p.pdf']);
-    const pdf = await captureDownload(page, () => clickButton(page, /Compress \(lossless\)/));
+    const pdf = await processAndDownload(page, /Compress \(lossless\)/);
     expect((await pdfInfo(pdf)).pages).toHaveLength(3);
   });
 
@@ -714,7 +745,7 @@ test.describe('compress', () => {
     // enable strong mode
     await page.locator('label.toggle input[type=checkbox]').check();
     await page.selectOption('#cdpi', '96');
-    const pdf = await captureDownload(page, () => clickButton(page, /Compress \(strong\)/));
+    const pdf = await processAndDownload(page, /Compress \(strong\)/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(3);
     expect(pdf.byteLength, 'strong output should shrink a raster-heavy PDF').toBeLessThan(
@@ -950,12 +981,85 @@ test.describe('resizing mid-flow', () => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.waitForTimeout(150);
     await noHOverflow(page);
-    const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 7 pages into one PDF$/),
-    );
+    const pdf = await processAndDownload(page, /^Merge 7 pages into one PDF$/);
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(7);
     expect(info.pages[0]!.text).toContain('MARK-P1');
+    assertClean();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 13. No auto-download + tool chaining + combine live preview         */
+/* ------------------------------------------------------------------ */
+
+test.describe('downloads are explicit', () => {
+  test('processing never auto-downloads; the Download button does', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-compress');
+    await dropFixtures(page, ['text-1p.pdf']);
+    const downloads: string[] = [];
+    page.on('download', (d) => {
+      downloads.push(d.suggestedFilename());
+    });
+
+    await clickButton(page, /Compress \(lossless\)/);
+    await page.waitForSelector('.result-card');
+    await page.waitForTimeout(1200); // an auto-download would have fired by now
+    expect(downloads).toHaveLength(0);
+
+    await clickButton(page, /^Download PDF$/);
+    await page.waitForTimeout(800);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]!).toMatch(/-compressed\.pdf$/);
+    assertClean();
+  });
+});
+
+test.describe('tool chaining', () => {
+  test('merge → "Continue with Compress" preloads the merged PDF', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-1p.pdf', 'landscape-1p.pdf']);
+    await expect(page.locator('.seq-tile')).toHaveCount(2);
+
+    // merge, but do NOT download — chain instead
+    await clickButton(page, /^Merge 2 pages into one PDF$/);
+    await page.waitForSelector('.result-card');
+    await page.locator('.chain-link', { hasText: 'Compress' }).click();
+    await page.waitForURL('**/pdf-compress');
+
+    // the merged file was picked up automatically
+    await expect(page.locator('.chain-note')).toContainText('merged.pdf');
+    await expect(page.locator('.file-row .file-name', { hasText: 'merged.pdf' })).toBeVisible();
+
+    // and it's ready to process from there
+    const pdf = await processAndDownload(page, /Compress \(lossless\)/);
+    const info = await pdfInfo(pdf);
+    expect(info.pages).toHaveLength(2);
+    assertClean();
+  });
+});
+
+test.describe('combine live preview', () => {
+  test('output preview auto-updates when the layout changes', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-combine');
+    await dropFixtures(page, ['text-5p.pdf']);
+    await expect(page.locator('.sheet-preview')).toBeVisible();
+
+    // 5 pages @ 4-up → 2 sheets
+    await expect(page.locator('.sheet-preview-count')).toContainText('2 sheets');
+    await expect(page.locator('.sheet-prev-img')).toHaveCount(2);
+
+    // switch to 2-up → 3 sheets (preview re-renders automatically)
+    await page.selectOption('#grid', '2');
+    await expect(page.locator('.sheet-preview-count')).toContainText('3 sheets');
+    await expect(page.locator('.sheet-prev-img')).toHaveCount(3);
+
+    // deselecting a page updates the preview too
+    await page.locator('.page-tile[aria-pressed="true"]').last().click();
+    await expect(page.locator('.sheet-preview-count')).toContainText('2 sheets');
     assertClean();
   });
 });

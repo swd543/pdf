@@ -84,6 +84,111 @@ const SHEET_JPEG_QUALITY = 0.85;
 const MAX_SHEET_PX = 2600;
 
 /**
+ * Draw one combined sheet (cells × rows) into a canvas.
+ * Shared by the real output (`combinePages`, full resolution) and the
+ * live preview (`previewSheets`, low resolution) so both show exactly
+ * the same layout.
+ */
+async function drawSheet(
+  pdf: Awaited<ReturnType<typeof pdfDocument>>,
+  selected: number[],
+  sheet: number,
+  count: number,
+  cols: number,
+  rows: number,
+  ppi: number,
+  canvasW: number,
+  canvasH: number,
+): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(canvasW));
+  canvas.height = Math.max(1, Math.round(canvasH));
+  const ctx = canvas.getContext('2d', { desynchronized: true });
+  if (!ctx) throw new Error('Canvas 2D context unavailable');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cellW = canvas.width / cols;
+  const cellH = canvas.height / rows;
+  let pageIdx = sheet * (cols * rows);
+
+  for (let k = 0; k < count; k += 1) {
+    const pageNum = selected[pageIdx]!;
+    pageIdx += 1;
+    const page = await pdf.getPage(pageNum);
+    const base = page.getViewport({ scale: 1 });
+    const layout = cellLayout(base.width, base.height, cellW, cellH);
+    const viewport = page.getViewport({ scale: layout.scale * ppi });
+
+    const tile = document.createElement('canvas');
+    tile.width = Math.max(1, Math.ceil(viewport.width));
+    tile.height = Math.max(1, Math.ceil(viewport.height));
+    const tctx = tile.getContext('2d', { desynchronized: true });
+    if (!tctx) throw new Error('Canvas 2D context unavailable');
+    await page.render({ canvas: tile, viewport }).promise;
+
+    const col = k % cols;
+    const row = Math.floor(k / cols);
+    ctx.drawImage(
+      tile,
+      Math.round(col * cellW + layout.x),
+      Math.round(row * cellH + layout.y),
+      Math.round(layout.w),
+      Math.round(layout.h),
+    );
+    tile.width = 0;
+    tile.height = 0; // release the tile backing store
+  }
+  return canvas;
+}
+
+/**
+ * Live preview: render the first `maxSheets` output sheets at low
+ * resolution (same layout math as the real output) and return JPEG data
+ * URLs. Browser-only; cheap enough to run on every option change.
+ */
+export async function previewSheets(
+  data: ArrayBuffer,
+  selected: number[],
+  options: Omit<CombineOptions, 'dpi'>,
+  maxSheets = 3,
+  targetWidth = 260,
+): Promise<{ urls: string[]; total: number }> {
+  if (selected.length === 0) return { urls: [], total: 0 };
+  const cells = options.cols * options.rows;
+  const counts = perSheetCounts(selected.length, cells);
+  const total = counts.length;
+  const ppi = targetWidth / (options.sheetW / 72); // preview scale
+  const canvasH = (options.sheetH / options.sheetW) * targetWidth;
+
+  const pdf = await pdfDocument(new Uint8Array(data));
+  const urls: string[] = [];
+  try {
+    const n = Math.min(maxSheets, total);
+    for (let s = 0; s < n; s += 1) {
+      const canvas = await drawSheet(
+        pdf,
+        selected,
+        s,
+        counts[s]!,
+        options.cols,
+        options.rows,
+        ppi,
+        targetWidth,
+        canvasH,
+      );
+      urls.push(canvas.toDataURL('image/jpeg', 0.7));
+      canvas.width = 0;
+      canvas.height = 0;
+      await yieldToBrowser();
+    }
+    return { urls, total };
+  } finally {
+    disposePdf(pdf);
+  }
+}
+
+/**
  * Combine the selected pages (1-based, in the given order) into sheets.
  * Browser-only (needs DOM canvases); reports progress per sheet.
  */
@@ -113,50 +218,22 @@ export async function combinePages(
     out.setTitle('Combined pages');
     out.setProducer('PDFBoogie (in-browser, no upload)');
 
-    let pageIdx = 0;
     for (let s = 0; s < sheets; s += 1) {
       onProgress(s, sheets, `Sheet ${s + 1} of ${sheets}…`);
       await yieldToBrowser();
       const n = counts[s]!;
 
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round((options.sheetW / 72) * dpi);
-      canvas.height = Math.round((options.sheetH / 72) * dpi);
-      const ctx = canvas.getContext('2d', { desynchronized: true });
-      if (!ctx) throw new Error('Canvas 2D context unavailable');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const cellW = canvas.width / options.cols;
-      const cellH = canvas.height / options.rows;
-
-      for (let k = 0; k < n; k += 1) {
-        const pageNum = selected[pageIdx]!;
-        pageIdx += 1;
-        const page = await pdf.getPage(pageNum);
-        const base = page.getViewport({ scale: 1 });
-        const layout = cellLayout(base.width, base.height, cellW, cellH);
-        const viewport = page.getViewport({ scale: layout.scale * ppi });
-
-        const tile = document.createElement('canvas');
-        tile.width = Math.max(1, Math.ceil(viewport.width));
-        tile.height = Math.max(1, Math.ceil(viewport.height));
-        const tctx = tile.getContext('2d', { desynchronized: true });
-        if (!tctx) throw new Error('Canvas 2D context unavailable');
-        await page.render({ canvas: tile, viewport }).promise;
-
-        const col = k % options.cols;
-        const row = Math.floor(k / options.cols);
-        ctx.drawImage(
-          tile,
-          Math.round(col * cellW + layout.x),
-          Math.round(row * cellH + layout.y),
-          Math.round(layout.w),
-          Math.round(layout.h),
-        );
-        tile.width = 0;
-        tile.height = 0; // release the tile backing store
-      }
+      const canvas = await drawSheet(
+        pdf,
+        selected,
+        s,
+        n,
+        options.cols,
+        options.rows,
+        ppi,
+        (options.sheetW / 72) * dpi,
+        (options.sheetH / 72) * dpi,
+      );
 
       const jpeg = await canvasToJpeg(canvas, SHEET_JPEG_QUALITY);
       canvas.width = 0;

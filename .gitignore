@@ -34,3 +34,4 @@ e2e/fixtures/*
 !e2e/fixtures/encrypted.pdf
 e2e/.tmp-input/
 e2e/playwright-report/
+core.*

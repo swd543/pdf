@@ -8,9 +8,11 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createSignal, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import { type DocConversionResult, type DocFormat, pdfToDoc } from '~/features/pdf-to-doc/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
@@ -29,6 +31,9 @@ export default function PdfToDocPage() {
   const [progress, setProgress] = createSignal({ done: 0, total: 1, label: '' });
   const [result, setResult] = createSignal<(DocConversionResult & { name: string }) | null>(null);
   const [format, setFormat] = createSignal<DocFormat>('docx');
+
+  // Pick up a result chained from another tool ("Continue with …").
+  const chain = useChainedPdf((f) => pickFile([f]));
 
   const pickFile = (files: File[]) => {
     const candidate = files[0];
@@ -71,7 +76,6 @@ export default function PdfToDocPage() {
       const base = f.name.replace(/\.pdf$/i, '') || 'document';
       setResult({ ...outcome, name: `${base}.${format()}` });
       setPhase('done');
-      saveBlob(outcome.bytes, `${base}.${format()}`, outcome.mime); // auto-download
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -141,6 +145,7 @@ export default function PdfToDocPage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <Show when={!file() || phase() === 'empty'}>
                 <DropZone
                   accept="application/pdf,.pdf"

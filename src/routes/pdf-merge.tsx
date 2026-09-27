@@ -1,10 +1,18 @@
 /**
  * Merge tool page: multiple PDFs and images → one PDF.
  *
- * Every page of every file is rendered as a small thumbnail in a single
- * "page order" strip; the user reorders individual pages by dragging tiles
- * or using the arrow buttons (files can also be moved as a block). The merge
- * follows the strip exactly (`mergePages` in `./logic`).
+ * Every page of every file is rendered as a thumbnail in a single
+ * "page order" strip. Reordering works on mouse **and** touch:
+ *
+ *  - tap a tile to select it (multi-select; tap again to deselect),
+ *  - drag the ⠿ grip (pointer-based, so it works on touch too) — a
+ *    selected grip drags the whole selection as a block,
+ *  - the ‹ › arrows nudge the selection (or a single tile) one slot,
+ *  - whole files can still be moved up/down as blocks.
+ *
+ * Live feedback: while dragging, the strip re-orders in place (the block
+ * follows the pointer) and every change animates with FLIP (measure →
+ * invert → play) so tiles glide into place instead of jumping.
  *
  * State machine: empty → ready (strip populated) → processing → done.
  * Heavy lifting lives in `./logic` (unit-tested, lazy-loaded deps).
@@ -13,17 +21,22 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createMemo, createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import {
   AlertIcon,
   ArrowDownIcon,
   ArrowUpIcon,
+  CloseIcon,
   DownloadIcon,
+  GripIcon,
   SpinnerIcon,
   TrashIcon,
 } from '~/components/Icons';
+
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import type { PageSize } from '~/features/image-to-pdf/logic';
 import { type MergePageRef, mergePages } from '~/features/pdf-merge/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, nextId, readFileBytes } from '~/lib/files';
 import { renderPageThumbs } from '~/lib/thumbs';
@@ -59,6 +72,8 @@ type Phase = 'empty' | 'ready' | 'processing' | 'done';
 const MAX_FILES = 30;
 /** Thumbnail cap per file — beyond this, tiles show the page number only. */
 const THUMB_CAP = 200;
+/** Pointer travel (px) before a grip press becomes a drag. */
+const DRAG_THRESHOLD = 6;
 
 export default function MergePage() {
   const meta = routeMeta['/pdf-merge']!;
@@ -70,14 +85,215 @@ export default function MergePage() {
   const [error, setError] = createSignal('');
   const [progress, setProgress] = createSignal({ done: 0, total: 1, label: '' });
   const [result, setResult] = createSignal<{ bytes: Uint8Array; name: string } | null>(null);
-  const [dragId, setDragId] = createSignal('');
-  const [dragOverId, setDragOverId] = createSignal('');
+
+  /** Multi-selected tiles (by seq id); empty = nothing selected. */
+  const [selected, setSelected] = createSignal<string[]>([]);
+  /** Tile id under the drag grip (null = not dragging). */
+  const [dragging, setDragging] = createSignal<string | null>(null);
+  /** Live insertion index (into the non-dragged tiles) while dragging. */
+  const [dragIdx, setDragIdx] = createSignal<number | null>(null);
 
   const [pageSize, setPageSize] = createSignal<PageSize>('fit');
   const [margin, setMargin] = createSignal(0);
 
+  // Pick up a result chained from another tool ("Continue with …").
+  // Lambda: `addFiles` is defined below; the hook invokes it in onMount.
+  const chain = useChainedPdf((f) => addFiles([f]));
+
   const itemMap = createMemo(() => new Map(items().map((i) => [i.id, i])));
   const itemOf = (id: string) => itemMap().get(id);
+  const selectedSet = createMemo(() => new Set(selected()));
+
+  /** The block being dragged: the selection if it includes the grabbed
+   *  tile, otherwise just that tile. */
+  const dragBlock = createMemo<Set<string>>(() => {
+    const d = dragging();
+    if (!d) return new Set();
+    const sel = selectedSet();
+    return sel.has(d) ? sel : new Set([d]);
+  });
+
+  /** What the strip renders: the live re-ordered preview while dragging,
+   *  the committed order otherwise. */
+  const previewSeq = createMemo<Seq[]>(() => {
+    if (!dragging()) return seq();
+    const block = dragBlock();
+    const list = seq();
+    const drag = list.filter((s) => block.has(s.id));
+    const rest = list.filter((s) => !block.has(s.id));
+    const idx = Math.max(0, Math.min(dragIdx() ?? rest.length, rest.length));
+    return [...rest.slice(0, idx), ...drag, ...rest.slice(idx)];
+  });
+
+  /* ---------------- FLIP animation ------------------------------------ */
+  const tileEls = new Map<string, HTMLLIElement>();
+
+  /** Run `apply` (a seq/preview change) and animate every tile from its
+   *  old slot to its new one (First-Last-Invert-Play). */
+  const flip = (duration: number, apply: () => void) => {
+    const first = new Map<string, DOMRect>();
+    for (const [id, el] of tileEls) first.set(id, el.getBoundingClientRect());
+    apply();
+    requestAnimationFrame(() => {
+      for (const [id, el] of tileEls) {
+        const f = first.get(id);
+        if (!f) continue;
+        const l = el.getBoundingClientRect();
+        const dx = f.x - l.x;
+        const dy = f.y - l.y;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+        el.animate(
+          [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+          { duration, easing: 'cubic-bezier(0.2, 0.8, 0.25, 1)' },
+        );
+      }
+    });
+  };
+
+  /* ---------------- selection ----------------------------------------- */
+
+  const toggleSelect = (id: string) => {
+    const cur = new Set(selected());
+    if (cur.has(id)) cur.delete(id);
+    else cur.add(id);
+    setSelected([...cur]);
+  };
+
+  /* ---------------- reordering ---------------------------------------- */
+
+  /** Nudge the selection (or a single tile) one slot left/right. The
+   *  selection moves as a unit; non-selected tiles fill the vacated slot. */
+  const nudgeSelection = (tileId: string, dir: -1 | 1) => {
+    const sel = new Set(selected());
+    if (!sel.has(tileId)) sel.add(tileId);
+    const list = [...seq()];
+    let min = -1;
+    let max = -1;
+    list.forEach((x, i) => {
+      if (sel.has(x.id)) {
+        if (min < 0) min = i;
+        max = i;
+      }
+    });
+    if (min < 0) return;
+    if (dir === -1 && min === 0) return;
+    if (dir === 1 && max === list.length - 1) return;
+    flip(240, () => {
+      const next = [...list];
+      if (dir === -1) {
+        // The slot before the block moves to after it; once that element is
+        // removed the block itself has shifted left by one, so "after the
+        // block" is index `max` in the shortened list.
+        const [el] = next.splice(min - 1, 1);
+        next.splice(max, 0, el!);
+      } else {
+        const [el] = next.splice(max + 1, 1);
+        next.splice(min, 0, el!);
+      }
+      setSeq(next);
+    });
+  };
+
+  /** Pointer-based drag (mouse + touch): starts on a grip, previews the
+   *  re-order live, commits on release. */
+  const startGripDrag = (e: PointerEvent, tileId: string) => {
+    if (phase() !== 'ready' || e.button !== 0) return;
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY };
+    let active = false;
+
+    const onMove = (ev: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_THRESHOLD) return;
+        active = true;
+        document.body.classList.add('seq-dragging');
+        // Stable starting position: the block's current slot.
+        const list = seq();
+        const block = dragBlockAt(tileId);
+        const firstPos = list.findIndex((s) => block.has(s.id));
+        setDragging(tileId);
+        setDragIdx(list.slice(0, firstPos).filter((s) => !block.has(s.id)).length);
+      }
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const strip = el?.closest?.('.page-strip') as HTMLElement | null;
+      if (!strip) return;
+      const t = el?.closest?.('.seq-tile[data-seq-id]') as HTMLElement | null;
+      const list = seq();
+      const block = dragBlock();
+      const rest = list.filter((s) => !block.has(s.id));
+      let idx = rest.length;
+      if (t?.dataset.seqId) {
+        const pos = rest.findIndex((s) => s.id === t.dataset.seqId);
+        if (pos >= 0) idx = pos; // drop in front of that tile
+        // over the dragged block itself: keep the current position
+      }
+      if (idx !== dragIdx()) flip(160, () => setDragIdx(idx));
+    };
+
+    const finish = (commit: boolean) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('seq-dragging');
+      if (active) {
+        flip(240, () => {
+          if (commit) setSeq([...previewSeq()]);
+          setDragging(null);
+          setDragIdx(null);
+        });
+      }
+    };
+    const onUp = () => finish(true);
+    const onCancel = () => finish(false);
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && active) finish(false);
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey);
+  };
+
+  /** Block id-set for a would-be drag of `tileId` (selection-aware). */
+  const dragBlockAt = (tileId: string): Set<string> => {
+    const sel = selectedSet();
+    return sel.has(tileId) ? sel : new Set([tileId]);
+  };
+
+  /** Move a whole file's pages (in their current relative order) one file
+   *  position up/down, keeping them contiguous. */
+  const moveFile = (id: string, dir: -1 | 1) => {
+    const list = [...items()];
+    const from = list.findIndex((x) => x.id === id);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= list.length) return;
+    const [item] = list.splice(from, 1);
+    list.splice(to, 0, item!);
+    setItems(list);
+
+    const s = seq();
+    const block = s.filter((x) => x.file === id);
+    const rest = s.filter((x) => x.file !== id);
+    if (block.length === 0) return;
+    // The neighbour the file lands next to after the move (the moved file
+    // itself sits at index `to` in the spliced list).
+    const anchorId = dir === 1 ? list[to - 1]!.id : list[to + 1]!.id;
+    let insertAt: number;
+    if (dir === 1) {
+      // after the anchor file's last page
+      let last = -1;
+      rest.forEach((x, i) => {
+        if (x.file === anchorId) last = i;
+      });
+      insertAt = last < 0 ? rest.length : last + 1;
+    } else {
+      // before the anchor file's first page
+      insertAt = rest.findIndex((x) => x.file === anchorId);
+      if (insertAt < 0) insertAt = 0;
+    }
+    flip(240, () => setSeq([...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)]));
+  };
 
   const baseName = () => {
     const first = items()[0];
@@ -184,72 +400,13 @@ export default function MergePage() {
     }
   };
 
-  /** Swap one page one slot left/right in the global sequence. */
-  const movePage = (seqId: string, dir: -1 | 1) => {
-    const list = [...seq()];
-    const from = list.findIndex((x) => x.id === seqId);
-    const to = from + dir;
-    if (from < 0 || to < 0 || to >= list.length) return;
-    const [page] = list.splice(from, 1);
-    list.splice(to, 0, page!);
-    setSeq(list);
-  };
-
-  /** Drag-and-drop: move the dragged page so it lands before `targetId`
-   *  (or append to the end when `targetId` is null). */
-  const moveSeq = (srcId: string, targetId: string | null) => {
-    const list = [...seq()];
-    const from = list.findIndex((x) => x.id === srcId);
-    if (from < 0) return;
-    const [page] = list.splice(from, 1);
-    if (targetId === null) {
-      list.push(page!);
-    } else {
-      const to = list.findIndex((x) => x.id === targetId);
-      list.splice(to < 0 ? list.length : to, 0, page!);
-    }
-    setSeq(list);
-  };
-
-  /** Move a whole file's pages (in their current relative order) one file
-   *  position up/down, keeping them contiguous. */
-  const moveFile = (id: string, dir: -1 | 1) => {
-    const list = [...items()];
-    const from = list.findIndex((x) => x.id === id);
-    const to = from + dir;
-    if (from < 0 || to < 0 || to >= list.length) return;
-    const [item] = list.splice(from, 1);
-    list.splice(to, 0, item!);
-    setItems(list);
-
-    const s = seq();
-    const block = s.filter((x) => x.file === id);
-    const rest = s.filter((x) => x.file !== id);
-    if (block.length === 0) return;
-    // The neighbour the file lands next to after the move (the moved file
-    // itself sits at index `to` in the spliced list).
-    const anchorId = dir === 1 ? list[to - 1]!.id : list[to + 1]!.id;
-    let insertAt: number;
-    if (dir === 1) {
-      // after the anchor file's last page
-      let last = -1;
-      rest.forEach((x, i) => {
-        if (x.file === anchorId) last = i;
-      });
-      insertAt = last < 0 ? rest.length : last + 1;
-    } else {
-      // before the anchor file's first page
-      insertAt = rest.findIndex((x) => x.file === anchorId);
-      if (insertAt < 0) insertAt = 0;
-    }
-    setSeq([...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)]);
-  };
-
   const remove = (id: string) => {
     const it = itemOf(id);
     if (it?.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
     setItems(items().filter((x) => x.id !== id));
     setSeq(seq().filter((x) => x.file !== id));
+    // Drop selections of removed pages.
+    setSelected(selected().filter((sid) => seq().some((s) => s.id === sid)));
     if (items().length === 0) {
       setPhase('empty');
       setResult(null);
@@ -278,7 +435,6 @@ export default function MergePage() {
       );
       setResult({ bytes, name: `${baseName()}.pdf` });
       setPhase('done');
-      saveBlob(bytes, `${baseName()}.pdf`, 'application/pdf'); // auto-download, like the other tools
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -294,10 +450,11 @@ export default function MergePage() {
     for (const i of items()) if (i.thumbUrl) URL.revokeObjectURL(i.thumbUrl);
     setItems([]);
     setSeq([]);
+    setSelected([]);
+    setDragging(null);
+    setDragIdx(null);
     setPhase('empty');
     setResult(null);
-    setDragId('');
-    setDragOverId('');
   };
 
   const pageTotal = () => seq().length;
@@ -315,12 +472,16 @@ export default function MergePage() {
 
       <ToolPage
         title="Merge PDF"
-        lede="Combine several PDFs — and JPG, PNG, WebP images — into a single PDF. Every page is rendered so you can reorder individual pages, then download. Nothing is uploaded."
+        lede="Combine several PDFs — and JPG, PNG, WebP images — into a single PDF. Every page is rendered so you can reorder individual pages — drag, tap to multi-select, or nudge with the arrows — then download. Nothing is uploaded."
         related={[
           { path: '/pdf-combine', label: 'Combine pages' },
           { path: '/image-to-pdf', label: 'Image to PDF' },
           { path: '/pdf-compress', label: 'Compress PDF' },
         ]}
+        chainResult={() => {
+          const r = result();
+          return r ? { bytes: r.bytes, name: r.name } : null;
+        }}
       >
         <ToolColumns
           aside={
@@ -362,8 +523,9 @@ export default function MergePage() {
                 <div class="panel-body">
                   <h3>Order matters</h3>
                   <p style="font-size: 0.88rem; color: var(--ink-muted); margin: 0">
-                    The merge follows the page strip below exactly — drag a tile, use the arrows, or
-                    move a whole file up and down. Password-protected PDFs can't be merged.
+                    The merge follows the page strip below exactly. Tap pages to multi-select, drag
+                    the grip to move one page or the whole selection, or use the arrows.
+                    Password-protected PDFs can't be merged.
                   </p>
                 </div>
               </div>
@@ -373,6 +535,7 @@ export default function MergePage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <DropZone
                 accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif"
                 multiple
@@ -440,27 +603,23 @@ export default function MergePage() {
 
                 <Show when={seq().length > 0 || loadingFiles()}>
                   <div class="seq-wrap">
-                    <p class="seq-head">
-                      Page order
+                    <div class="seq-head">
+                      <span class="seq-title">Page order</span>
                       <span class="seq-count">
                         {pageTotal()} {pageTotal() === 1 ? 'page' : 'pages'}
                       </span>
-                    </p>
+                      <Show when={selected().length > 0}>
+                        <button type="button" class="seq-clear" onClick={() => setSelected([])}>
+                          <CloseIcon />
+                          {selected().length} selected
+                        </button>
+                      </Show>
+                    </div>
                     <ul
                       class="page-strip"
-                      aria-label="Page order — drag a tile or use the arrow buttons to reorder"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const src = e.dataTransfer?.getData('text/plain') || dragId();
-                        if (src) moveSeq(src, null);
-                        setDragId('');
-                        setDragOverId('');
-                      }}
+                      aria-label="Page order — tap tiles to select, drag the grip to reorder"
                     >
-                      <For each={seq()}>
+                      <For each={previewSeq()}>
                         {(s) => {
                           const it = () => itemOf(s.file);
                           const thumb = () => it()?.thumbUrl ?? it()?.thumbs[s.page - 1] ?? '';
@@ -468,34 +627,29 @@ export default function MergePage() {
                             <li
                               class="seq-tile"
                               data-seq-id={s.id}
-                              draggable={phase() === 'ready'}
-                              onDragStart={(e) => {
-                                e.dataTransfer?.setData('text/plain', s.id);
-                                if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-                                setDragId(s.id);
+                              ref={(el) => {
+                                if (el) tileEls.set(s.id, el);
+                                else tileEls.delete(s.id);
                               }}
-                              onDragOver={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setDragOverId(s.id);
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const src = e.dataTransfer?.getData('text/plain') || dragId();
-                                if (src && src !== s.id) moveSeq(src, s.id);
-                                setDragId('');
-                                setDragOverId('');
-                              }}
-                              onDragEnd={() => {
-                                setDragId('');
-                                setDragOverId('');
-                              }}
+                              onClick={() => toggleSelect(s.id)}
                               classList={{
-                                'drag-over': dragOverId() === s.id && dragId() !== s.id,
-                                dragging: dragId() === s.id,
+                                'is-selected': selectedSet().has(s.id),
+                                'is-dragging': dragBlock().has(s.id),
+                                'is-drag-source': dragging() === s.id,
                               }}
                             >
+                              <button
+                                type="button"
+                                class="seq-grip"
+                                aria-label={`Drag to reorder page ${s.page} of ${it()?.name}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                onPointerDown={(e) => startGripDrag(e, s.id)}
+                              >
+                                <GripIcon />
+                              </button>
                               {thumb() ? (
                                 <img
                                   class="seq-thumb"
@@ -517,7 +671,10 @@ export default function MergePage() {
                                 <button
                                   type="button"
                                   aria-label={`Move page ${s.page} of ${it()?.name} left`}
-                                  onClick={() => movePage(s.id, -1)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    nudgeSelection(s.id, -1);
+                                  }}
                                   disabled={phase() !== 'ready'}
                                 >
                                   ‹
@@ -525,7 +682,10 @@ export default function MergePage() {
                                 <button
                                   type="button"
                                   aria-label={`Move page ${s.page} of ${it()?.name} right`}
-                                  onClick={() => movePage(s.id, 1)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    nudgeSelection(s.id, 1);
+                                  }}
                                   disabled={phase() !== 'ready'}
                                 >
                                   ›

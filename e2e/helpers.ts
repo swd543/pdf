@@ -186,6 +186,20 @@ export async function captureDownload(
 export const clickButton = (page: Page, re: RegExp) =>
   page.locator('button', { hasText: re }).first().click();
 
+/**
+ * Tools no longer auto-download: click the processing CTA, wait for the
+ * result card, then click its Download button and capture the file.
+ */
+export async function processAndDownload(
+  page: Page,
+  cta: RegExp,
+  downloadRe: RegExp = /^Download/,
+): Promise<Uint8Array> {
+  await clickButton(page, cta);
+  await page.waitForSelector('.result-card', { timeout: 120_000 });
+  return captureDownload(page, () => clickButton(page, downloadRe));
+}
+
 /* ------------------------------------------------------------------ */
 /* Node-side validators                                                */
 /* ------------------------------------------------------------------ */

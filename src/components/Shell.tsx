@@ -3,8 +3,9 @@
  */
 
 import { useLocation } from '@solidjs/router';
-import { createSignal, type JSX, Show } from 'solid-js';
+import { createSignal, type JSX } from 'solid-js';
 import { site, staticPages, tools } from '~/site/config';
+import { ChainSection } from './ChainBar';
 import { Logo, UploadIcon } from './Icons';
 
 /** Page chrome: sticky header with tool nav, main container, footer. */
@@ -97,13 +98,16 @@ export function Shell(props: { children?: JSX.Element }) {
 }
 
 /**
- * Tool page scaffold: SEO intro + badges, children, related links, and the
+ * Tool page scaffold: SEO intro + badges, children, related links (which
+ * transition into the "Continue with" chain after an operation), and the
  * persistent bottom ad slot (inactive until AdSense is configured).
  */
 export function ToolPage(props: {
   title: string;
   lede: string;
   related?: { path: string; label: string }[];
+  /** Finished result (PDF tools) — switches the footer to chain mode. */
+  chainResult?: () => { bytes: Uint8Array; name: string } | null;
   children: JSX.Element;
 }) {
   return (
@@ -121,14 +125,7 @@ export function ToolPage(props: {
         </div>
       </div>
       {props.children}
-      <Show when={props.related && props.related.length > 0}>
-        <div class="related">
-          Related:
-          {(props.related ?? []).map((r) => (
-            <a href={r.path}>{r.label}</a>
-          ))}
-        </div>
-      </Show>
+      <ChainSection related={props.related ?? []} result={props.chainResult ?? (() => null)} />
     </div>
   );
 }

@@ -14,13 +14,19 @@ uploaded anywhere: there is no backend to upload to.
   rendered as a thumbnail in a reorderable strip — drag tiles or use the
   arrows to arrange pages individually, or move whole files up and down.
 - **Combine pages (n-up)** — place 2 / 4 / 6 / 9 pages per sheet, portrait or
-  landscape, like a home-print 2-up layout, with page previews.
+  landscape, like a home-print 2-up layout, with page previews and a live
+  preview of the combined sheets that re-renders whenever the layout changes.
 - **Image → PDF** — turn PNG/JPEG/WebP images into a PDF, one image per page.
 - **PDF → Image** — export pages as PNG, JPEG or WebP (any DPI), single file or
   ZIP.
 - **Sign & Fill** — draw, type or upload a signature, place stamps on any page,
   and fill standard PDF form fields (text, checkbox, dropdown).
 - **PDF → Word** — convert PDF text to DOCX or ODT, client-side.
+
+Nothing downloads on its own: every result waits behind an explicit Download
+button, and the footer's “Related” links transition into “Continue with {file}”
+after an operation — chaining the result into any other tool with one click
+(in-memory only; the file never leaves the browser).
 
 Built with [SolidStart](https://start.solidjs.com) (SSG), pdf.js, pdf-lib,
 fflate and a hand-rolled Rust/WASM core. No server-side code: the whole site is

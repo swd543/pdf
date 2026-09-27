@@ -142,7 +142,6 @@ export default function ImageToPdfPage() {
       );
       setResult({ bytes, name: `${baseName()}.pdf` });
       setPhase('done');
-      saveBlob(bytes, `${baseName()}.pdf`, 'application/pdf'); // auto-download
     } catch (err) {
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -177,6 +176,10 @@ export default function ImageToPdfPage() {
           { path: '/pdf-to-image', label: 'PDF to image' },
           { path: '/pdf-sign', label: 'Sign & fill' },
         ]}
+        chainResult={() => {
+          const r = result();
+          return r ? { bytes: r.bytes, name: r.name } : null;
+        }}
       >
         <ToolColumns
           aside={

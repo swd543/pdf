@@ -294,13 +294,43 @@ code {
   color: var(--ink-muted);
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 0.35rem 1.1rem;
 }
 
 .related a {
   margin-right: 0; /* spacing handled by the flex gap */
   white-space: nowrap;
+}
+
+/* cheap transition when "Related" becomes "Continue with":
+   the keyed <Show> remounts the content, replaying the entry animation */
+.related > * {
+  animation: related-in 0.22s ease both;
+}
+
+@keyframes related-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+.related.has-chain {
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  gap: 0.4rem 0.5rem;
+}
+
+.related-label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.related.has-chain .chain-link {
+  font-size: 0.8rem;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1198,8 +1228,7 @@ input[type="range"] {
 
 .seq-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 0.5rem;
   font-size: 0.95rem;
   font-weight: 600;
@@ -1211,6 +1240,31 @@ input[type="range"] {
   font-size: 0.78rem;
   font-weight: 400;
   color: var(--ink-muted);
+  margin-left: auto;
+}
+
+.seq-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.seq-clear:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.seq-clear svg {
+  width: 11px;
+  height: 11px;
 }
 
 .page-strip {
@@ -1237,23 +1291,40 @@ input[type="range"] {
   padding: 0.4rem;
   position: relative;
   transition:
-    border-color 0.12s ease,
-    opacity 0.12s ease;
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1),
+    opacity 0.15s ease;
+  will-change: transform;
   user-select: none;
-  cursor: grab;
+  -webkit-user-select: none;
 }
 
 .seq-tile:hover {
   border-color: var(--line-strong);
 }
 
-.seq-tile.dragging {
-  opacity: 0.45;
-}
-
-.seq-tile.drag-over {
+/* multi-select */
+.seq-tile.is-selected {
   border-color: var(--accent);
   box-shadow: var(--focus-ring);
+}
+
+.seq-tile.is-selected .seq-chip {
+  background: var(--accent);
+}
+
+/* live drag preview: the dragged block dims; the grabbed tile lifts */
+.seq-tile.is-dragging {
+  opacity: 0.35;
+  border-style: dashed;
+}
+
+.seq-tile.is-drag-source {
+  opacity: 1;
+  transform: scale(1.04);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+  z-index: 5;
 }
 
 .seq-thumb {
@@ -1264,6 +1335,50 @@ input[type="range"] {
   border-radius: 4px;
   background: #fff;
   display: block;
+  pointer-events: none;
+  animation: seq-thumb-in 0.3s ease;
+}
+
+@keyframes seq-thumb-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* drag grip (touch + mouse) */
+.seq-grip {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: grab;
+  touch-action: none;
+  padding: 0;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.seq-grip:hover {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
+}
+
+.seq-grip:active {
+  cursor: grabbing;
+}
+
+body.seq-dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .seq-thumb-blank {
@@ -1430,4 +1545,102 @@ input[type="range"] {
   font-size: 0.72rem;
   color: var(--ink-faint);
   margin-left: 0.25rem;
+}
+
+/* tool chaining --------------------------------------------------------- */
+.chain-link {
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.chain-link:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.chain-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 0.85rem;
+}
+
+.chain-note button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 0.15rem;
+  display: grid;
+  place-items: center;
+}
+
+.chain-note svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* combine: output preview ------------------------------------------------ */
+.sheet-preview {
+  margin: 0.75rem 0;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--bg-inset, color-mix(in srgb, var(--line) 12%, transparent));
+}
+
+.sheet-preview-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.sheet-preview-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sheet-preview-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.sheet-prev-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.sheet-prev-img {
+  width: 190px;
+  height: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+}
+
+.sheet-prev-more {
+  align-self: center;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
 }

@@ -13,6 +13,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, DownloadIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import type { SignaturePadApi } from '~/components/SignaturePad';
@@ -26,6 +27,7 @@ import {
   placeSignatures,
   scanForm,
 } from '~/features/pdf-sign/logic';
+import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
 import { canvasToPng } from '~/lib/imaging';
@@ -72,6 +74,9 @@ export default function PdfSignPage() {
   const [pageCount, setPageCount] = createSignal(0);
   const [pageMeta, setPageMeta] = createSignal<PageMeta[]>([]);
   const [pageScale, setPageScale] = createSignal(1);
+
+  // Pick up a result chained from another tool ("Continue with …").
+  const chain = useChainedPdf((f) => pickFile([f]));
   const [phase, setPhase] = createSignal<Phase>('empty');
   const [error, setError] = createSignal('');
   const [progress, setProgress] = createSignal({ done: 0, total: 1, label: '' });
@@ -601,6 +606,7 @@ export default function PdfSignPage() {
         >
           <div class="panel">
             <div class="panel-body">
+              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
               <Show when={!file() || phase() === 'empty'}>
                 <DropZone
                   accept="application/pdf,.pdf"
