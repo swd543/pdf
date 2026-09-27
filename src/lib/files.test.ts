@@ -16,8 +16,8 @@ describe('humanSize', () => {
     expect(humanSize(2560 * 1024)).toBe('2.5 MB');
   });
   it('rejects nonsense input', () => {
-    expect(humanSize(-1)).toBe('—');
-    expect(humanSize(Number.NaN)).toBe('—');
+    expect(humanSize(-1)).toBe('-');
+    expect(humanSize(Number.NaN)).toBe('-');
   });
 });
 

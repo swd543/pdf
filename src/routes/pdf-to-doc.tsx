@@ -117,7 +117,7 @@ export default function PdfToDocPage() {
 
       <ToolPage
         title="PDF to Word / ODF"
-        lede="Turn a PDF into an editable .docx (Word) or .odt (LibreOffice/OpenDocument) file. The text is extracted and rebuilt right in your browser — nothing is uploaded."
+        lede="Turn a PDF into an editable .docx (Word) or .odt (LibreOffice/OpenDocument) file. The text is extracted and rebuilt right in your browser. Nothing is uploaded."
         related={[
           { path: '/pdf-compress', label: 'Compress PDF' },
           { path: '/pdf-to-image', label: 'PDF to image' },
@@ -137,8 +137,8 @@ export default function PdfToDocPage() {
                       onChange={(e) => setFormat(e.currentTarget.value as DocFormat)}
                       disabled={phase() === 'processing'}
                     >
-                      <option value="docx">.docx — Microsoft Word</option>
-                      <option value="odt">.odt — LibreOffice / OpenDocument</option>
+                      <option value="docx">.docx (Microsoft Word)</option>
+                      <option value="odt">.odt (LibreOffice / OpenDocument)</option>
                     </select>
                   </div>
                 </div>
@@ -152,7 +152,7 @@ export default function PdfToDocPage() {
                     <li>Page breaks between pages</li>
                   </ul>
                   <p class="opt-hint" style="margin: 0.5rem 0 0">
-                    Tables, images and complex multi-column layouts are not reconstructed — a PDF
+                    Tables, images and complex multi-column layouts are not reconstructed. A PDF
                     stores where glyphs are drawn, not a document model.
                   </p>
                 </div>

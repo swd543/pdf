@@ -264,7 +264,7 @@ export default function CombinePage() {
 
       <ToolPage
         title="Combine pages"
-        lede="Fit several pages of a PDF onto a single sheet. Pick 2-up, 4-up, 9-up or 16-up and the selected pages flow onto as many sheets as needed — all in your browser."
+        lede="Fit several pages of a PDF onto a single sheet. Pick 2-up, 4-up, 9-up or 16-up and the selected pages flow onto as many sheets as needed, all in your browser."
         related={[
           { path: '/pdf-to-image', label: 'PDF to image' },
           { path: '/pdf-merge', label: 'Merge PDF' },
@@ -321,9 +321,9 @@ export default function CombinePage() {
                       value={dpi()}
                       onChange={(e) => setDpi(Number(e.currentTarget.value) as DpiChoice)}
                     >
-                      <option value={100}>100 DPI — lightweight</option>
-                      <option value={150}>150 DPI — documents</option>
-                      <option value={200}>200 DPI — crisp</option>
+                      <option value={100}>100 DPI (lightweight)</option>
+                      <option value={150}>150 DPI (documents)</option>
+                      <option value={200}>200 DPI (crisp)</option>
                     </select>
                     <p class="opt-hint">
                       {sheetSize() === 'a4' ? 'A4' : 'Letter'} · {orientation()} ·{' '}
@@ -337,7 +337,7 @@ export default function CombinePage() {
                   <h3>Good to know</h3>
                   <p style="font-size: 0.88rem; color: var(--ink-muted); margin: 0">
                     Pages are placed at high resolution, so combined sheets are image-based.
-                    Deselect pages you don't need — the rest flow onto as many sheets as required.
+                    Deselect pages you don't need; the rest flow onto as many sheets as required.
                   </p>
                 </div>
               </div>

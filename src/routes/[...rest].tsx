@@ -9,13 +9,13 @@ import { tools } from '~/site/config';
 export default function NotFoundPage() {
   return (
     <>
-      <Title>Page not found — PDFBoogie</Title>
+      <Title>Page not found | PDFBoogie</Title>
       <Meta
         name="description"
         content="This page does not exist. Head back to the PDF tools home."
       />
       <div class="hero" style="text-align: center; margin-top: 3rem">
-        <h1>404 — that page skipped out</h1>
+        <h1>404: that page skipped out</h1>
         <p class="lede" style="margin: 0.75rem auto 1.5rem; max-width: 30rem">
           The page you're looking for doesn't exist. The tools, however, are very much here.
         </p>

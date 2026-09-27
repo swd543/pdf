@@ -340,7 +340,7 @@ export default function MergePage() {
         `Not PDF or images: ${rejected.slice(0, 3).join(', ')}${rejected.length > 3 ? '…' : ''}`,
       );
     }
-    if (truncated) errors.push(`Limit is ${MAX_FILES} files — extras were skipped.`);
+    if (truncated) errors.push(`Limit is ${MAX_FILES} files; extras were skipped.`);
     setError(errors.join(' '));
 
     // Global budgets: one thumb per page across all files (P0.2), a cap on
@@ -350,14 +350,14 @@ export default function MergePage() {
     for (const file of toAdd) {
       if (pageTotal() >= MAX_INTERACTIVE_PAGES) {
         errors.push(
-          `Page limit is ${MAX_INTERACTIVE_PAGES} — remaining files were skipped. Remove pages or files to add more.`,
+          `Page limit is ${MAX_INTERACTIVE_PAGES}; remaining files were skipped. Remove pages or files to add more.`,
         );
         break;
       }
       const usedBytes = items().reduce((sum, i) => sum + i.size, 0);
       if (usedBytes + file.size > MAX_EAGER_INPUT_BYTES) {
         errors.push(
-          `Total size limit is ${Math.round(MAX_EAGER_INPUT_BYTES / 1024 / 1024)} MB of inputs — "${cleanFileName(file.name)}" was skipped.`,
+          `Total size limit is ${Math.round(MAX_EAGER_INPUT_BYTES / 1024 / 1024)} MB of inputs; "${cleanFileName(file.name)}" was skipped.`,
         );
         continue;
       }
@@ -544,7 +544,7 @@ export default function MergePage() {
 
       <ToolPage
         title="Merge PDF"
-        lede="Combine several PDFs — and JPG, PNG, WebP images — into a single PDF. Every page is rendered so you can reorder individual pages — drag, tap to multi-select, or nudge with the arrows — then download. Nothing is uploaded."
+        lede="Combine several PDFs (and JPG, PNG, WebP images) into a single PDF. Every page is rendered so you can reorder individual pages (drag, tap to multi-select, or nudge with the arrows), then download. Nothing is uploaded."
         related={[
           { path: '/pdf-combine', label: 'Combine pages' },
           { path: '/image-to-pdf', label: 'Image to PDF' },
@@ -597,7 +597,7 @@ export default function MergePage() {
                   <p style="font-size: 0.88rem; color: var(--ink-muted); margin: 0">
                     The merge follows the page strip below exactly. Tap pages to select, Ctrl/⌘+tap
                     to add more, Shift+tap for a range, then drag the ⠿ grip to move one page or the
-                    whole selection — or use the arrows. Image previews update live as you change
+                    whole selection, or use the arrows. Image previews update live as you change
                     page size or margins. Password-protected PDFs can't be merged.
                   </p>
                 </div>
@@ -613,7 +613,7 @@ export default function MergePage() {
                 accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif"
                 multiple
                 title="Drop PDFs and images here"
-                subtitle="PDF, JPG, PNG, WebP, GIF, BMP, AVIF — mix and match"
+                subtitle="PDF, JPG, PNG, WebP, GIF, BMP, AVIF (mix and match)"
                 busy={phase() === 'processing'}
                 onFiles={addFiles}
               />

@@ -43,7 +43,7 @@ export default function HomePage() {
         <h1>Free, secure, private PDF tools that never touch a server.</h1>
         <p class="lede">
           Compress, convert and sign PDFs. Everything runs right here in your browser: your file is
-          processed securely and never leaves your device. No uploads, no accounts, no watermarks —
+          processed securely and never leaves your device. No uploads, no accounts, no watermarks;
           you can verify it in the network tab.
         </p>
         <div class="badge-row">
@@ -110,8 +110,8 @@ export default function HomePage() {
           <h2 id="how-title">How it works</h2>
           <ol class="how-steps">
             <li>
-              <strong>Pick a tool and drop your file.</strong> Nothing is uploaded — the file is
-              read straight from disk by your browser.
+              <strong>Pick a tool and drop your file.</strong> Nothing is uploaded; the file is read
+              straight from disk by your browser.
             </li>
             <li>
               <strong>It processes on your device.</strong> PDF rendering runs on PDF.js, structural
@@ -120,7 +120,7 @@ export default function HomePage() {
             </li>
             <li>
               <strong>Download the result.</strong> When you close the tab, no trace of your
-              document remains anywhere — not on this site, not on a server, because there is no
+              document remains anywhere: not on this site, not on a server, because there is no
               server.
             </li>
           </ol>

@@ -22,9 +22,9 @@ export default function PrivacyPage() {
       <div class="prose">
         <h1>Privacy: your files stay yours</h1>
         <p>
-          {site.name} is a static website with no backend. Every operation — compressing,
-          converting, signing and filling — runs in your browser, on your device. This is a design
-          constraint, not a policy promise:{' '}
+          {site.name} is a static website with no backend. Every operation (compressing, converting,
+          signing and filling) runs in your browser, on your device. This is a design constraint,
+          not a policy promise:{' '}
           <strong>
             there is no server that could receive your documents, because there is no server.
           </strong>
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
         <ul>
           <li>
             <strong>They are read locally.</strong> Your browser reads the file from disk via the
-            File API — the same way it would for any local file picker.
+            File API, the same way it would for any local file picker.
           </li>
           <li>
             <strong>They are processed locally.</strong> PDF rendering (Mozilla PDF.js), structural
@@ -50,7 +50,7 @@ export default function PrivacyPage() {
 
         <h2>What we do NOT do</h2>
         <ul>
-          <li>Upload, store or log your documents — we physically cannot.</li>
+          <li>Upload, store or log your documents. We physically cannot.</li>
           <li>
             Collect analytics on you. There are no trackers, no cookies and no fingerprinting.
           </li>
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
         <p>
           Every tool is free and unlimited. The processing happens on your device, but the site
           still needs hosting and maintenance. If you use {site.name} a lot, you can send a
-          voluntary donation directly to one of these wallets — straight from you to the maintainer,
+          voluntary donation directly to one of these wallets, straight from you to the maintainer,
           with no middleman, no tracking and no impact on the tools. It is entirely optional.
         </p>
         <ul>
@@ -80,7 +80,7 @@ export default function PrivacyPage() {
 
         <h2>Third-party scripts</h2>
         <p>
-          By default this site loads <strong>zero external scripts</strong> — the HTML, CSS and
+          By default this site loads <strong>zero external scripts</strong>: the HTML, CSS and
           JavaScript are all served from this origin under a strict Content-Security-Policy. If the
           site is later monetized with Google AdSense, ad scripts are loaded only when a publisher
           key is configured, and they never receive your documents.

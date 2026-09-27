@@ -146,7 +146,7 @@ export default function PdfToImagePage() {
 
       if (last <= first) {
         const images = await pdfToImages(data, options, onProgress);
-        if (images.length === 0) throw new Error('Nothing was exported — check the page range.');
+        if (images.length === 0) throw new Error('Nothing was exported. Check the page range.');
         const img = images[0]!;
         setResult({
           bytes: img.bytes,
@@ -171,7 +171,7 @@ export default function PdfToImagePage() {
         onProgress,
       );
       const out = await zip.finish();
-      if (count === 0) throw new Error('Nothing was exported — check the page range.');
+      if (count === 0) throw new Error('Nothing was exported. Check the page range.');
       setResult({
         bytes: out,
         name: `${base.replace(/\.pdf$/i, '') || 'document'}-pages.zip`,
@@ -221,7 +221,7 @@ export default function PdfToImagePage() {
 
       <ToolPage
         title="PDF to Image"
-        lede="Export PDF pages as PNG, JPEG or WebP. Pick the resolution, export one page or all pages as a ZIP — rendered locally by Mozilla PDF.js."
+        lede="Export PDF pages as PNG, JPEG or WebP. Pick the resolution, export one page or all pages as a ZIP, rendered locally by Mozilla PDF.js."
         related={[
           { path: '/image-to-pdf', label: 'Image to PDF' },
           { path: '/pdf-compress', label: 'Compress PDF' },
@@ -269,10 +269,10 @@ export default function PdfToImagePage() {
                       value={dpi()}
                       onChange={(e) => setDpi(Number(e.currentTarget.value) as DpiOption)}
                     >
-                      <option value={96}>96 DPI — screen</option>
-                      <option value={150}>150 DPI — documents</option>
-                      <option value={220}>220 DPI — crisp</option>
-                      <option value={300}>300 DPI — print</option>
+                      <option value={96}>96 DPI (screen)</option>
+                      <option value={150}>150 DPI (documents)</option>
+                      <option value={220}>220 DPI (crisp)</option>
+                      <option value={300}>300 DPI (print)</option>
                     </select>
                   </div>
                   <div class="opt-group">

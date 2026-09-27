@@ -18,63 +18,63 @@ const ogImage = `${siteUrl}/og.png`;
 
 export const routeMeta: Record<string, RouteMeta> = {
   '/': {
-    title: `${site.name} — Free, Secure & Private PDF Tools (100% in Your Browser)`,
+    title: `${site.name}: Free, Secure & Private PDF Tools (100% in Your Browser)`,
     description:
-      'Free, secure PDF tools that run entirely in your browser. Compress, merge, combine, convert and sign PDFs — ' +
+      'Free, secure PDF tools that run entirely in your browser. Compress, merge, combine, convert and sign PDFs; ' +
       'no uploads, no accounts. Your file is processed locally and never leaves your device.',
     image: ogImage,
   },
   '/pdf-compress': {
-    title: 'Compress PDF Online — Free, Secure & Private, No Upload | PDFBoogie',
+    title: 'Compress PDF Online: Free, Secure & Private, No Upload | PDFBoogie',
     description:
       'Reduce PDF file size securely in your browser with a lossless optimizer or a strong re-encode. ' +
       'Free PDF compress tool: no upload, no watermark, your file never leaves your device.',
     image: ogImage,
   },
   '/image-to-pdf': {
-    title: 'Image to PDF Online — JPG, PNG, WebP to PDF (Secure, Private) | PDFBoogie',
+    title: 'Image to PDF Online: JPG, PNG, WebP to PDF (Secure, Private) | PDFBoogie',
     description:
       'Convert images to PDF for free, right in your browser. Combine JPG, PNG, WebP, GIF, BMP and AVIF into one ' +
-      'PDF with A4/Letter pages or fit-to-image sizing. Secure by design — no upload, 100% client-side.',
+      'PDF with A4/Letter pages or fit-to-image sizing. Secure by design: no upload, 100% client-side.',
     image: ogImage,
   },
   '/pdf-to-image': {
-    title: 'PDF to Image Online — PDF to JPG/PNG (Secure, Private) | PDFBoogie',
+    title: 'PDF to Image Online: PDF to JPG/PNG (Secure, Private) | PDFBoogie',
     description:
       'Convert PDF pages to JPG, PNG or WebP securely in your browser. Pick the resolution, take one page or all ' +
       'pages as a ZIP. Free and private: nothing is uploaded.',
     image: ogImage,
   },
   '/pdf-sign': {
-    title: 'Sign PDF Online — Add Signature & Fill Forms (Secure, Private) | PDFBoogie',
+    title: 'Sign PDF Online: Add Signature & Fill Forms (Secure, Private) | PDFBoogie',
     description:
-      'Add a drawn or typed signature to a PDF and fill form fields — entirely in your browser. ' +
+      'Add a drawn or typed signature to a PDF and fill form fields, entirely in your browser. ' +
       'Free and secure: no upload, no account, your document never leaves your device.',
     image: ogImage,
   },
   '/pdf-merge': {
-    title: 'Merge PDF Online — Combine PDFs & JPGs (Secure, Private) | PDFBoogie',
+    title: 'Merge PDF Online: Combine PDFs & JPGs (Secure, Private) | PDFBoogie',
     description:
-      'Merge multiple PDF files — and JPG/PNG images — into a single PDF securely in your browser. Reorder individual pages, ' +
+      'Merge multiple PDF files (and JPG/PNG images) into a single PDF securely in your browser. Reorder individual pages, ' +
       'no upload, no watermark. 100% client-side merge.',
     image: ogImage,
   },
   '/pdf-combine': {
-    title: 'Combine PDF Pages — 2-Up to 16-Up (Secure, Private) | PDFBoogie',
+    title: 'Combine PDF Pages: 2-Up to 16-Up (Secure, Private) | PDFBoogie',
     description:
       'Combine several PDF pages onto one sheet: pick 2-up to 16-up layouts and the pages fill as many ' +
-      'sheets as needed. Runs entirely in your browser — nothing is uploaded.',
+      'sheets as needed. Runs entirely in your browser. Nothing is uploaded.',
     image: ogImage,
   },
   '/pdf-to-doc': {
-    title: 'PDF to Word Online — Secure PDF to DOCX/ODT Converter | PDFBoogie',
+    title: 'PDF to Word Online: Secure PDF to DOCX/ODT Converter | PDFBoogie',
     description:
       'Convert a PDF to an editable Word (.docx) or OpenDocument (.odt) file securely in your browser. ' +
-      'Text, headings and basic styles are rebuilt client-side — no upload, no account.',
+      'Text, headings and basic styles are rebuilt client-side: no upload, no account.',
     image: ogImage,
   },
   '/privacy': {
-    title: `Privacy — ${site.name}`,
+    title: `Privacy | ${site.name}`,
     description:
       'How PDFBoogie works: all PDF processing happens locally in your browser. ' +
       'Nothing is uploaded, stored or transmitted. Read the full privacy policy.',
@@ -128,7 +128,7 @@ export function jsonLdFor(path: string): object[] {
     '/image-to-pdf': [
       {
         q: 'Which image formats can I convert to PDF?',
-        a: 'JPG, PNG, WebP, GIF, BMP and AVIF — everything your browser can open. You can combine multiple images into a single PDF.',
+        a: 'JPG, PNG, WebP, GIF, BMP and AVIF. Everything your browser can open. You can combine multiple images into a single PDF.',
       },
       {
         q: 'Are my images uploaded to a server?',
@@ -136,7 +136,7 @@ export function jsonLdFor(path: string): object[] {
       },
       {
         q: 'Can I set the page size of the PDF?',
-        a: 'Yes — fit-to-image (each page matches the image) or A4, Letter and Legal with adjustable margins.',
+        a: 'Yes: fit-to-image (each page matches the image) or A4, Letter and Legal with adjustable margins.',
       },
     ],
     '/pdf-to-image': [
@@ -156,7 +156,7 @@ export function jsonLdFor(path: string): object[] {
     '/pdf-merge': [
       {
         q: 'Can I merge PDFs without uploading them?',
-        a: 'Yes. PDFBoogie merges entirely in your browser using pdf-lib — your files never leave your device.',
+        a: 'Yes. PDFBoogie merges entirely in your browser using pdf-lib; your files never leave your device.',
       },
       {
         q: 'Can I merge images into a PDF along with PDF files?',
@@ -164,17 +164,17 @@ export function jsonLdFor(path: string): object[] {
       },
       {
         q: 'Is the content quality preserved when merging?',
-        a: 'PDF pages are copied exactly — vectors and text stay selectable. Images keep their original encoding when possible (JPEG fast path).',
+        a: 'PDF pages are copied exactly: vectors and text stay selectable. Images keep their original encoding when possible (JPEG fast path).',
       },
       {
         q: 'Can I reorder individual pages before merging?',
-        a: 'Yes. Every page of every file is rendered as a thumbnail in a reorderable strip — drag tiles or use the arrow buttons to arrange pages individually, or move whole files up and down. The merge follows the strip exactly.',
+        a: 'Yes. Every page of every file is rendered as a thumbnail in a reorderable strip. Drag tiles or use the arrow buttons to arrange pages individually, or move whole files up and down. The merge follows the strip exactly.',
       },
     ],
     '/pdf-combine': [
       {
         q: 'What does “combine pages” mean?',
-        a: 'You select pages from a PDF and choose a grid per sheet (2-up, 4-up, 9-up or 16-up). The selected pages flow onto as many sheets as needed — for example 13 pages at 4-up become 4 sheets.',
+        a: 'You select pages from a PDF and choose a grid per sheet (2-up, 4-up, 9-up or 16-up). The selected pages flow onto as many sheets as needed; for example, 13 pages at 4-up become 4 sheets.',
       },
       {
         q: 'Is anything uploaded?',
@@ -218,7 +218,7 @@ export function jsonLdFor(path: string): object[] {
   const blocks: object[] = [
     {
       '@type': 'SoftwareApplication',
-      name: `${site.name} — ${toolName}`,
+      name: `${site.name}: ${toolName}`,
       operatingSystem: 'Web (any modern browser)',
       applicationCategory: 'UtilityApplication',
       url,

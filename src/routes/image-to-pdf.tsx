@@ -82,7 +82,7 @@ export default function ImageToPdfPage() {
       errors.push(
         `Not images: ${rejected.slice(0, 3).join(', ')}${rejected.length > 3 ? '…' : ''}`,
       );
-    if (truncated) errors.push(`Limit is ${MAX_FILES} images — extras were skipped.`);
+    if (truncated) errors.push(`Limit is ${MAX_FILES} images; extras were skipped.`);
     setError(errors.join(' '));
 
     for (const file of toAdd) {
@@ -198,7 +198,7 @@ export default function ImageToPdfPage() {
 
       <ToolPage
         title="Image to PDF"
-        lede="Combine JPG, PNG, WebP, GIF, BMP and AVIF images into a single PDF. Reorder, pick page sizes and download — all without uploading a single byte."
+        lede="Combine JPG, PNG, WebP, GIF, BMP and AVIF images into a single PDF. Reorder, pick page sizes and download, all without uploading a single byte."
         related={[
           { path: '/pdf-compress', label: 'Compress PDF' },
           { path: '/pdf-to-image', label: 'PDF to image' },

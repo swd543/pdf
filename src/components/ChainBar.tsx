@@ -145,7 +145,7 @@ export function ChainNote({ note, dismiss }: { note: () => string; dismiss: () =
     <Show when={note()}>
       <div class="chain-note" role="status">
         <span>
-          <strong>{note()}</strong> — added from your previous step.
+          <strong>{note()}</strong>, added from your previous step.
         </span>
         <button type="button" onClick={dismiss} aria-label="Dismiss note">
           <CloseIcon />

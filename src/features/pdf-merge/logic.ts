@@ -34,7 +34,7 @@ export async function mergeFiles(
   options: MergeOptions,
   onProgress: ProgressFn,
 ): Promise<Uint8Array> {
-  if (inputs.length === 0) throw new Error('Nothing to merge — add at least two files.');
+  if (inputs.length === 0) throw new Error('Nothing to merge. Add at least two files.');
 
   const { PDFDocument } = await pdflib();
   const doc = await PDFDocument.create();
@@ -71,7 +71,7 @@ async function loadSource(name: string, bytes: Uint8Array): Promise<PdfDoc> {
     src = await PDFDocument.load(bytes, { throwOnInvalidObject: false });
   } catch {
     throw new Error(
-      `Couldn't read “${name}” — is it a valid PDF? Password-protected PDFs can't be merged.`,
+      `Couldn't read “${name}”. Is it a valid PDF? Password-protected PDFs can't be merged.`,
     );
   }
   if (src.getPageCount() === 0) {
@@ -98,7 +98,7 @@ export async function mergePages(
   options: MergeOptions,
   onProgress: ProgressFn,
 ): Promise<Uint8Array> {
-  if (refs.length === 0) throw new Error('Nothing to merge — add at least one page.');
+  if (refs.length === 0) throw new Error('Nothing to merge. Add at least one page.');
 
   const { PDFDocument } = await pdflib();
   const doc = await PDFDocument.create();

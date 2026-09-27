@@ -61,7 +61,7 @@ export interface ModeRecommendation {
  */
 export function recommendMode(bytes: Uint8Array, pageCount: number): ModeRecommendation {
   if (!Number.isFinite(pageCount) || pageCount <= 0) {
-    return { mode: 'lossless', reason: 'page count unknown — lossless is the safe pick' };
+    return { mode: 'lossless', reason: 'page count unknown; lossless is the safe pick' };
   }
 
   // Count embedded image XObjects via their subtype tag — works for every
@@ -84,7 +84,7 @@ export function recommendMode(bytes: Uint8Array, pageCount: number): ModeRecomme
   if (imgStreams === 0) {
     return {
       mode: 'lossless',
-      reason: 'text/vector document — lossless keeps text selectable and searchable',
+      reason: 'text/vector document; lossless keeps text selectable and searchable',
     };
   }
 
@@ -92,18 +92,18 @@ export function recommendMode(bytes: Uint8Array, pageCount: number): ModeRecomme
   if (imgStreams >= pageCount * 0.5 && perPageKB >= 40) {
     return {
       mode: 'strong',
-      reason: `image-heavy document (${imgStreams} image streams, ~${Math.round(perPageKB)} KB/page) — strong mode re-encodes images for real savings`,
+      reason: `image-heavy document (${imgStreams} image streams, ~${Math.round(perPageKB)} KB/page); strong mode re-encodes images for real savings`,
     };
   }
   if (imgStreams >= pageCount * 0.5) {
     return {
       mode: 'lossless',
-      reason: 'images are small — lossless keeps quality risk at zero',
+      reason: 'images are small; lossless keeps quality risk at zero',
     };
   }
   return {
     mode: 'lossless',
-    reason: `mostly vector content with ${imgStreams} embedded image${imgStreams === 1 ? '' : 's'} — lossless is the safe pick`,
+    reason: `mostly vector content with ${imgStreams} embedded image${imgStreams === 1 ? '' : 's'}; lossless is the safe pick`,
   };
 }
 

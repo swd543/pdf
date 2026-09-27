@@ -66,7 +66,7 @@ export function Shell(props: { children?: JSX.Element }) {
           </nav>
           <div class="donate">
             <span class="donate-label">
-              Free to use — but hosting isn't free. If PDFBoogie helps, a donation is appreciated:
+              Free to use, but hosting isn't free. If PDFBoogie helps, a donation is appreciated:
             </span>
             {site.donation.map((d) => (
               <span class="donate-addr" title={d.address}>
@@ -117,7 +117,7 @@ export function ToolPage(props: {
         <p class="lede">{props.lede}</p>
         <div class="badge-row">
           <span class="badge">
-            <ShieldTiny /> 100% private — runs in your browser
+            <ShieldTiny /> 100% private: runs in your browser
           </span>
           <span class="badge">
             <BoltTiny /> No upload · No account
@@ -222,7 +222,7 @@ export function DropZone(props: {
         <UploadIcon class="dz-icon" />
         <div class="dz-title">{props.title}</div>
         <div class="dz-sub">
-          <span class="dz-browse">Browse</span> or drag &amp; drop — {props.subtitle}
+          <span class="dz-browse">Browse</span> or drag &amp; drop: {props.subtitle}
         </div>
       </div>
       <input

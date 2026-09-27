@@ -18,10 +18,10 @@ export interface Donation {
 
 export const site = {
   name: 'PDFBoogie',
-  tagline: 'PDF tools that boogie — right in your browser.',
+  tagline: 'PDF tools that boogie, right in your browser.',
   description:
     'Free, secure and private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, PDF to Word, and sign or fill PDF forms. ' +
-    '100% client-side — your file is processed locally and never leaves your device.',
+    '100% client-side: your file is processed locally and never leaves your device.',
   /** Default origin used when VITE_SITE_URL is not set (dev). */
   fallbackUrl: 'http://localhost:3000',
   /** Contact shown on the privacy page (AdSense requires a contact path). */
@@ -74,19 +74,19 @@ export const tools: ToolDef[] = [
   {
     path: '/pdf-compress',
     label: 'Compress',
-    blurb: 'Shrink PDF file size — lossless mode or strong re-encode.',
+    blurb: 'Shrink PDF file size: lossless mode or strong re-encode.',
     icon: 'compress',
   },
   {
     path: '/pdf-merge',
     label: 'Merge PDF',
-    blurb: 'Combine multiple PDFs — and JPGs — into one PDF, in the order you pick.',
+    blurb: 'Combine multiple PDFs (and JPGs) into one PDF, in the order you pick.',
     icon: 'merge',
   },
   {
     path: '/pdf-combine',
     label: 'Combine pages',
-    blurb: 'Fit several pages onto one sheet — 2-up, 4-up, 9-up, 16-up.',
+    blurb: 'Fit several pages onto one sheet: 2-up, 4-up, 9-up, 16-up.',
     icon: 'grid',
   },
   {
@@ -98,13 +98,13 @@ export const tools: ToolDef[] = [
   {
     path: '/pdf-to-image',
     label: 'PDF → Image',
-    blurb: 'Export PDF pages as PNG, JPEG or WebP — single file or ZIP.',
+    blurb: 'Export PDF pages as PNG, JPEG or WebP: single file or ZIP.',
     icon: 'pdf',
   },
   {
     path: '/pdf-to-doc',
     label: 'PDF → Word',
-    blurb: 'Turn a PDF into an editable .docx or .odt — text, headings and styles.',
+    blurb: 'Turn a PDF into an editable .docx or .odt: text, headings and styles.',
     icon: 'doc',
   },
   {

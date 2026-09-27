@@ -453,7 +453,7 @@ export default function PdfSignPage() {
                 <div class="error-card" role="alert" style="margin-top: 1rem">
                   <AlertIcon />
                   <span>
-                    This PDF uses a legacy XFA form — field filling is not supported, but you can
+                    This PDF uses a legacy XFA form; field filling is not supported, but you can
                     still add signatures.
                   </span>
                 </div>

@@ -69,7 +69,7 @@ export function PdfStage(props: PdfStageProps) {
                       e.stopPropagation();
                       props.onStampClick(s.id);
                     }}
-                    aria-label={`Signature on page ${p} — press Enter to remove`}
+                    aria-label={`Signature on page ${p}: press Enter to remove`}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === 'Delete') props.onStampRemoveKey(s.id);
                     }}

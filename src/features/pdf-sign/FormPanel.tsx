@@ -57,7 +57,7 @@ export function FormPanel(props: FormPanelProps) {
                   value={String(props.getFieldValue(f.name))}
                   onChange={(e) => props.setFieldValue(f.name, e.currentTarget.value)}
                 >
-                  <option value="">—</option>
+                  <option value="">(select)</option>
                   {(f.choices ?? []).map((choice) => (
                     <option value={choice}>{choice}</option>
                   ))}

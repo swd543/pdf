@@ -62,7 +62,7 @@ export function MergePageStrip(props: MergePageStripProps) {
         </div>
         <ul
           class="page-strip"
-          aria-label="Page order — tap tiles to select (Ctrl to add, Shift for a range), drag the grip to reorder"
+          aria-label="Page order: tap tiles to select (Ctrl to add, Shift for a range), drag the grip to reorder"
         >
           <For each={props.seq()}>
             {(s) => {

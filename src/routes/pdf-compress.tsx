@@ -190,7 +190,7 @@ export default function PdfCompressPage() {
 
       <ToolPage
         title="Compress PDF"
-        lede="Shrink a PDF without uploading it. A sensible mode is auto-picked for each file — lossless keeps text selectable, strong re-renders pages for maximum size reduction."
+        lede="Shrink a PDF without uploading it. A sensible mode is auto-picked for each file: lossless keeps text selectable, strong re-renders pages for maximum size reduction."
         related={[
           { path: '/image-to-pdf', label: 'Image to PDF' },
           { path: '/pdf-to-image', label: 'PDF to image' },
@@ -210,7 +210,7 @@ export default function PdfCompressPage() {
                     <span class="opt-label">Mode</span>
                     <Show when={autoNote()}>
                       <p class="opt-hint auto-note" style="margin: 0 0 0.45rem">
-                        Auto-selected {mode() === 'strong' ? 'strong' : 'lossless'} — {autoNote()}
+                        Auto-selected {mode() === 'strong' ? 'strong' : 'lossless'}: {autoNote()}
                       </p>
                     </Show>
                     <label class="toggle" style="margin-bottom: 0.6rem">
@@ -256,9 +256,9 @@ export default function PdfCompressPage() {
                         value={dpi()}
                         onChange={(e) => setDpi(Number(e.currentTarget.value))}
                       >
-                        <option value={96}>96 DPI — smallest</option>
-                        <option value={150}>150 DPI — balanced</option>
-                        <option value={220}>220 DPI — crisp</option>
+                        <option value={96}>96 DPI (smallest)</option>
+                        <option value={150}>150 DPI (balanced)</option>
+                        <option value={220}>220 DPI (crisp)</option>
                       </select>
                     </div>
                   </Show>
@@ -367,7 +367,7 @@ export default function PdfCompressPage() {
               <Show when={saved() <= 0}>
                 <div class="panel-body">
                   <p style="font-size: 0.85rem; color: var(--ink-muted); margin: 0">
-                    This file is already well optimized — the compressed version is the same size or
+                    This file is already well optimized: the compressed version is the same size or
                     larger, so keep the original.
                   </p>
                 </div>

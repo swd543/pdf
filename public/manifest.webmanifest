@@ -1,7 +1,7 @@
 {
-  "name": "PDFBoogie — private PDF tools",
+  "name": "PDFBoogie: private PDF tools",
   "short_name": "PDFBoogie",
-  "description": "Free, private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, and sign or fill PDF forms. 100% client-side — your file never leaves your device.",
+  "description": "Free, private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, and sign or fill PDF forms. 100% client-side: your file never leaves your device.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
