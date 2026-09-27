@@ -11,14 +11,14 @@ concurrency:
 
 env:
   # Pages site parameters — used for the deploy build (base path + absolute URLs).
-  # Topology: repo `pdf` → project site. Custom domain pdf.bugaboxes.com
+  # Topology: repo `pdfboogie` → project site. Custom domain pdf.bugaboxes.com
   # (CNAME → swd543.github.io, DNS-only; set via the Pages API on this repo)
   # is bound to the site's ROOT by GitHub: pdf.bugaboxes.com/ serves the site,
-  # and swd543.github.io/pdf/… 301-redirects to pdf.bugaboxes.com/… (the
-  # /pdf prefix is dropped). The site is therefore built with base /
+  # and swd543.github.io/pdfboogie/… 301-redirects to pdf.bugaboxes.com/… (the
+  # /pdfboogie prefix is dropped). The site is therefore built with base /
   # and the canonical absolute URLs are the bugaboxes ones.
-  # (If the custom domain is ever removed, flip VITE_BASE back to /pdf/ so
-  # the site works under swd543.github.io/pdf/.)
+  # (If the custom domain is ever removed, flip VITE_BASE back to /pdfboogie/
+  # so the site works under swd543.github.io/pdfboogie/.)
   VITE_BASE: /
   VITE_SITE_URL: https://pdf.bugaboxes.com
   WASM_PACK_VERSION: "0.13.1"

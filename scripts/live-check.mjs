@@ -427,13 +427,20 @@ await flow('encrypted PDF graceful error', async (page) => {
   else fail('encrypted-reject', `unexpected: ${text.slice(0, 60)}`);
 });
 
-/* 12. Redirect from the default host --------------------------------------- */
+/* 12. Redirects from the default host -------------------------------------- */
+// The repo was renamed `pdf` → `pdfboogie`, so the current project page is
+// swd543.github.io/pdfboogie/. GitHub keeps the old /pdf/ path 301-ing as
+// well (bookmarks/links) — check both.
 {
-  const res = await fetch('https://swd543.github.io/pdf/', { redirect: 'manual' });
-  const loc = res.headers.get('location') || '';
-  if (res.status === 301 && loc.startsWith('https://pdf.bugaboxes.com'))
-    ok('redirect github.io → custom domain', `${res.status} → ${loc}`);
-  else fail('redirect github.io → custom domain', `${res.status} → ${loc}`);
+  const paths = ['https://swd543.github.io/pdfboogie/', 'https://swd543.github.io/pdf/'];
+  for (const url of paths) {
+    const res = await fetch(url, { redirect: 'manual' });
+    const loc = res.headers.get('location') || '';
+    const label = `redirect ${new URL(url).pathname} → custom domain`;
+    if (res.status === 301 && loc.startsWith('https://pdf.bugaboxes.com'))
+      ok(label, `${res.status} → ${loc}`);
+    else fail(label, `${res.status} → ${loc}`);
+  }
 }
 
 /* 13. Ad network requests (must be zero — ads inert, no client id) --------- */
