@@ -143,7 +143,7 @@ Resource ownership rules (enforced by code review + tests):
 Presentation reuse:
 
 - `components/SinglePdfInput.tsx` — the drop-zone + file-row + remove
-  button shared by Compress, Combine, PDF-to-image, PDF-to-doc and Sign.
+  button shared by Compress, Combine, PDF-to-image and Sign.
   Presentational only; validation/opening/phases stay in the routes
   (no universal `usePdfTool()` hook — the tools differ in lifecycle).
 - Route decomposition (handoff P2.3): Sign's `SignatureChooser` /

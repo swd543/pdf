@@ -47,7 +47,6 @@ const routes = [
   '/pdf-combine/',
   '/image-to-pdf/',
   '/pdf-to-image/',
-  '/pdf-to-doc/',
   '/pdf-sign/',
   '/privacy/',
 ];

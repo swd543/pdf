@@ -10,8 +10,6 @@
  *  - image-heavy-3p.pdf 3 A4 pages, each dominated by a 480×360 noisy PNG
  *                       (incompressible raster → strong-compress shrink coverage)
  *                       (strong-compress shrink coverage)
- *  - scan-2p.pdf        2 A4 pages, raster only — NO text layer
- *                       (pdf-to-doc "no extractable text" coverage)
  *  - form.pdf           AcroForm: 2 text fields, checkbox, dropdown
  *  - encrypted.pdf      user-password protected (negative tests)
  *  - landscape-1p.pdf   A4 landscape + marker MARK-LANDSCAPE
@@ -162,21 +160,7 @@ console.log('writing fixtures →', OUT);
   await save('image-heavy-3p.pdf', doc);
 }
 
-// 4. scan-2p.pdf — raster only, no text layer
-{
-  const doc = await PDFDocument.create();
-  const a = await doc.embedPng(
-    png(600, 800, (x, _y) => [255 - Math.round((x / 600) * 200), 60, 60, 255]),
-  );
-  const b = await doc.embedPng(
-    png(600, 800, (_x, y) => [60, 255 - Math.round((y / 800) * 200), 60, 255]),
-  );
-  doc.addPage(A4).drawImage(a, { x: 0, y: 0, width: A4[0], height: A4[1] });
-  doc.addPage(A4).drawImage(b, { x: 0, y: 0, width: A4[0], height: A4[1] });
-  await save('scan-2p.pdf', doc);
-}
-
-// 5. form.pdf — AcroForm coverage
+// 4. form.pdf — AcroForm coverage
 {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -195,7 +179,7 @@ console.log('writing fixtures →', OUT);
   await save('form.pdf', doc);
 }
 
-// 6. encrypted.pdf — user-password protected (negative tests).
+// 5. encrypted.pdf — user-password protected (negative tests).
 //    pdf-lib has no working encryptor, so this is normally built with
 //    Ghostscript (`gs`) — but the *committed* fixture (e2e/fixtures/
 //    encrypted.pdf) is used whenever present, because Ghostscript output
@@ -241,7 +225,7 @@ console.log('writing fixtures →', OUT);
   }
 }
 
-// 7. landscape-1p.pdf
+// 6. landscape-1p.pdf
 {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

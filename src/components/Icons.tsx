@@ -120,16 +120,6 @@ export function GridIcon(props: IconProps) {
   );
 }
 
-export function DocumentIcon(props: IconProps) {
-  return (
-    <svg {...base} class={props.class}>
-      <path d="M6 3h8l4 4v14H6z" />
-      <path d="M14 3v4h4" />
-      <path d="M9 12h6M9 16h6M9 8h2" />
-    </svg>
-  );
-}
-
 export function TrashIcon(props: IconProps) {
   return (
     <svg {...base} class={props.class}>

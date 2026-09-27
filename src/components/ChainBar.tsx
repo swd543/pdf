@@ -29,21 +29,18 @@ const PDF_LINKS: Record<string, ToolLink[]> = {
     { path: '/pdf-merge', label: 'Merge' },
     { path: '/pdf-combine', label: 'Combine pages' },
     { path: '/pdf-to-image', label: 'PDF → Image' },
-    { path: '/pdf-to-doc', label: 'PDF → Word' },
     { path: '/pdf-sign', label: 'Sign & Fill' },
   ],
   '/pdf-merge': [
     { path: '/pdf-compress', label: 'Compress' },
     { path: '/pdf-combine', label: 'Combine pages' },
     { path: '/pdf-to-image', label: 'PDF → Image' },
-    { path: '/pdf-to-doc', label: 'PDF → Word' },
     { path: '/pdf-sign', label: 'Sign & Fill' },
   ],
   '/pdf-combine': [
     { path: '/pdf-compress', label: 'Compress' },
     { path: '/pdf-merge', label: 'Merge' },
     { path: '/pdf-to-image', label: 'PDF → Image' },
-    { path: '/pdf-to-doc', label: 'PDF → Word' },
     { path: '/pdf-sign', label: 'Sign & Fill' },
   ],
   '/image-to-pdf': [
@@ -51,7 +48,6 @@ const PDF_LINKS: Record<string, ToolLink[]> = {
     { path: '/pdf-merge', label: 'Merge' },
     { path: '/pdf-combine', label: 'Combine pages' },
     { path: '/pdf-to-image', label: 'PDF → Image' },
-    { path: '/pdf-to-doc', label: 'PDF → Word' },
     { path: '/pdf-sign', label: 'Sign & Fill' },
   ],
   '/pdf-sign': [
@@ -59,7 +55,6 @@ const PDF_LINKS: Record<string, ToolLink[]> = {
     { path: '/pdf-merge', label: 'Merge' },
     { path: '/pdf-combine', label: 'Combine pages' },
     { path: '/pdf-to-image', label: 'PDF → Image' },
-    { path: '/pdf-to-doc', label: 'PDF → Word' },
   ],
 };
 

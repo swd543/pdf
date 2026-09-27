@@ -66,13 +66,6 @@ export const routeMeta: Record<string, RouteMeta> = {
       'sheets as needed. Runs entirely in your browser. Nothing is uploaded.',
     image: ogImage,
   },
-  '/pdf-to-doc': {
-    title: 'PDF to Word Online: Secure PDF to DOCX/ODT Converter | PDFBoogie',
-    description:
-      'Convert a PDF to an editable Word (.docx) or OpenDocument (.odt) file securely in your browser. ' +
-      'Text, headings and basic styles are rebuilt client-side: no upload, no account.',
-    image: ogImage,
-  },
   '/privacy': {
     title: `Privacy | ${site.name}`,
     description:
@@ -197,20 +190,6 @@ export function jsonLdFor(path: string): object[] {
       {
         q: 'Is my signed PDF uploaded to a server?',
         a: 'No. Signing and form filling run entirely in your browser.',
-      },
-    ],
-    '/pdf-to-doc': [
-      {
-        q: 'Can I convert a PDF to Word (.docx) without uploading it?',
-        a: 'Yes. PDFBoogie extracts the text in your browser and rebuilds it as a .docx (Word) or .odt (OpenDocument/LibreOffice) file. Your PDF never leaves your device.',
-      },
-      {
-        q: 'Is the layout preserved in the converted document?',
-        a: 'Text flows in reading order with paragraphs, headings, bold and italic styles, plus page breaks. Tables, images and complex multi-column layouts are not reconstructed, because a PDF stores glyph positions rather than a document structure.',
-      },
-      {
-        q: 'Which formats can I export to?',
-        a: '.docx (Microsoft Word, WPS, LibreOffice) and .odt (LibreOffice, OpenOffice, Google Docs import).',
       },
     ],
   };

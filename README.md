@@ -24,7 +24,6 @@ uploaded anywhere: there is no backend to upload to.
   ZIP.
 - **Sign & Fill**: draw, type or upload a signature, place stamps on any page,
   and fill standard PDF form fields (text, checkbox, dropdown).
-- **PDF → Word**: convert PDF text to DOCX or ODT, client-side.
 
 Nothing downloads on its own: every result waits behind an explicit Download
 button, and the footer's “Related” links transition into “Continue with {file}”

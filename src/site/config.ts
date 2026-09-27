@@ -20,7 +20,7 @@ export const site = {
   name: 'PDFBoogie',
   tagline: 'PDF tools that boogie, right in your browser.',
   description:
-    'Free, secure and private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, PDF to Word, and sign or fill PDF forms. ' +
+    'Free, secure and private PDF tools: compress, merge, combine pages, image to PDF, PDF to image, and sign or fill PDF forms. ' +
     '100% client-side: your file is processed locally and never leaves your device.',
   /** Default origin used when VITE_SITE_URL is not set (dev). */
   fallbackUrl: 'http://localhost:3000',
@@ -67,7 +67,7 @@ export interface ToolDef {
   label: string;
   /** One-line description shown on cards. */
   blurb: string;
-  icon: 'image' | 'pdf' | 'compress' | 'sign' | 'merge' | 'grid' | 'doc';
+  icon: 'image' | 'pdf' | 'compress' | 'sign' | 'merge' | 'grid';
 }
 
 export const tools: ToolDef[] = [
@@ -100,12 +100,6 @@ export const tools: ToolDef[] = [
     label: 'PDF → Image',
     blurb: 'Export PDF pages as PNG, JPEG or WebP: single file or ZIP.',
     icon: 'pdf',
-  },
-  {
-    path: '/pdf-to-doc',
-    label: 'PDF → Word',
-    blurb: 'Turn a PDF into an editable .docx or .odt: text, headings and styles.',
-    icon: 'doc',
   },
   {
     path: '/pdf-sign',

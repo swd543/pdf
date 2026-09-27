@@ -14,16 +14,12 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import {
   captureDownload,
   clickButton,
-  docxText,
-  docxXml,
   dropFiles,
   dropFixtures,
-  firstZipEntry,
   fixtureBytes,
   formFieldValues,
   jpegSize,
   makeCanvasImages,
-  odtXml,
   pdfImagePlacements,
   pdfInfo,
   pngSize,
@@ -88,7 +84,6 @@ const ROUTES: Array<[string, RegExp]> = [
   ['/pdf-combine', /Combine pages/],
   ['/image-to-pdf', /Image to PDF/],
   ['/pdf-to-image', /PDF to [Ii]mage/],
-  ['/pdf-to-doc', /PDF to Word/],
   ['/pdf-sign', /Sign/],
   ['/privacy', /Privacy/],
 ];
@@ -139,8 +134,7 @@ test.describe('site smoke', () => {
       expect(res.status(), `${p} → ${res.status()}`).toBe(200);
     }
     const sitemap = await page.request.get('/sitemap.xml');
-    const body = await sitemap.text();
-    expect(body).toContain('/pdf-to-doc');
+    expect(await sitemap.text()).toContain('/pdf-compress/');
   });
 
   test('ad slot: hidden until first op, then pixel-art thank-you placeholder (ad-free build)', async ({
@@ -805,52 +799,6 @@ test.describe('PDF to image', () => {
 /* ------------------------------------------------------------------ */
 /* 7. PDF → Word / ODT                                                 */
 /* ------------------------------------------------------------------ */
-
-test.describe('PDF to doc', () => {
-  test('text-5p → docx: all markers, 4 page breaks, Heading1 detected', async ({ page }) => {
-    const assertClean = expectClean(page);
-    await page.goto('/pdf-to-doc');
-    await dropFixtures(page, ['text-5p.pdf']);
-    const docx = await processAndDownload(page, /Convert to \.docx/);
-    const text = docxText(docx);
-    for (const m of ['MARK-P1', 'MARK-P2', 'MARK-P3', 'MARK-P4', 'MARK-P5']) {
-      expect(text, `missing ${m}`).toContain(m);
-    }
-    const xml = docxXml(docx);
-    const breaks = (xml.match(/w:br w:type="page"/g) ?? []).length;
-    expect(breaks).toBe(4); // 5 pages → 4 breaks
-    expect(xml).toContain('Heading1'); // 24pt "Title One"
-    assertClean();
-  });
-
-  test('text-1p → odt: valid ODF, mimetype first + stored, text present', async ({ page }) => {
-    const assertClean = expectClean(page);
-    await page.goto('/pdf-to-doc');
-    await dropFixtures(page, ['text-1p.pdf']);
-    await page.selectOption('#docfmt', 'odt');
-    const odt = await processAndDownload(page, /Convert to \.odt/);
-    const first = firstZipEntry(odt);
-    expect(first.name).toBe('mimetype');
-    expect(first.method).toBe(0); // stored, per ODF
-    const content = odtXml(odt, 'content.xml');
-    expect(content).toContain('MARK-ONE');
-    assertClean();
-  });
-
-  test('scan (no text layer) → 0 paragraphs, valid doc, no crash', async ({ page }) => {
-    const assertClean = expectClean(page);
-    await page.goto('/pdf-to-doc');
-    await dropFixtures(page, ['scan-2p.pdf']);
-    await page.selectOption('#docfmt', 'odt');
-    const odt = await processAndDownload(page, /Convert to \.odt/);
-    // must be a valid archive with a content part (even if nearly empty)
-    const content = odtXml(odt, 'content.xml');
-    expect(content).toContain('office:text');
-    // UI still shows a result (0 paragraphs) rather than an error card
-    await expect(page.locator('.result-card')).toHaveCount(1);
-    assertClean();
-  });
-});
 
 /* ------------------------------------------------------------------ */
 /* 8. Compress                                                         */

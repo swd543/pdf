@@ -364,7 +364,7 @@ Acceptance criteria:
 
 #### P2.1 Extract the repeated single-PDF input presentation
 
-Repeated in Compress, Combine, PDF-to-image, PDF-to-doc, and Sign:
+Repeated in Compress, Combine, PDF-to-image, and Sign:
 
 - `ChainNote`
 - PDF `DropZone`
@@ -502,7 +502,6 @@ After P0/P1 work is stable, profile remaining long main-thread tasks:
 
 - `pdf-lib` page copying and `save()`
 - Rust/WASM lossless compression
-- DOCX/ODT ZIP generation
 
 If these still cause multi-second input stalls, introduce one typed same-origin Web Worker for processing tasks. The current CSP already permits same-origin workers. Do not workerize before lifecycle, bounds, and streaming are fixed; otherwise the same excessive work merely moves threads.
 

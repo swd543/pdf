@@ -6,7 +6,6 @@ import { AdSlot } from '~/components/AdSlot';
 import { Canonical } from '~/components/Canonical';
 import {
   CompressIcon,
-  DocumentIcon,
   GridIcon,
   ImageIcon,
   MergeIcon,
@@ -23,7 +22,6 @@ const iconFor = {
   sign: SignIcon,
   merge: MergeIcon,
   grid: GridIcon,
-  doc: DocumentIcon,
 } as const;
 
 export default function HomePage() {

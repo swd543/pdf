@@ -332,45 +332,7 @@ await flow('pdf-to-image page 3 PNG (direct)', async (page) => {
   else fail('pdf-to-image single', `png=${isPng(b)} zip=${isZip(b)}`);
 });
 
-/* 8. PDF → DOCX + ODT ------------------------------------------------------ */
-await flow('pdf-to-docx', async (page) => {
-  await page.goto(`${BASE}/pdf-to-doc`, { waitUntil: 'networkidle' });
-  await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
-  const cta = page.getByRole('button', { name: 'Convert to .docx (Word)' });
-  await cta.waitFor({ state: 'visible', timeout: 15000 });
-  const dl = page.waitForEvent('download', { timeout: 60000 });
-  await cta.click();
-  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
-  await page.getByRole('button', { name: /^Download/ }).click();
-  const p = join(OUT, 'out.docx');
-  await (await dl).saveAs(p);
-  const b = readFileSync(p);
-  const entries = isZip(b) ? zipEntries(b).map((e) => e.name) : [];
-  if (entries.includes('word/document.xml'))
-    ok('pdf-to-docx', `docx with ${entries.length} entries`);
-  else fail('pdf-to-docx', `zip=${isZip(b)} entries=${entries.join(',')}`);
-});
-await flow('pdf-to-odt', async (page) => {
-  await page.goto(`${BASE}/pdf-to-doc`, { waitUntil: 'networkidle' });
-  await page.locator('input[type="file"]').first().setInputFiles(fx('text-5p.pdf'));
-  await page.locator('#docfmt').selectOption('odt');
-  const cta = page.getByRole('button', { name: 'Convert to .odt (ODF)' });
-  await cta.waitFor({ state: 'visible', timeout: 15000 });
-  const dl = page.waitForEvent('download', { timeout: 60000 });
-  await cta.click();
-  await page.locator('.result-card').waitFor({ state: 'visible', timeout: 30000 });
-  await page.getByRole('button', { name: /^Download/ }).click();
-  const p = join(OUT, 'out.odt');
-  await (await dl).saveAs(p);
-  const b = readFileSync(p);
-  const entries = isZip(b) ? zipEntries(b) : [];
-  const mt = entries.find((e) => e.name === 'mimetype');
-  if (mt && Buffer.from(mt.data).toString('latin1') === 'application/vnd.oasis.opendocument.text')
-    ok('pdf-to-odt', `odt with ${entries.length} entries`);
-  else fail('pdf-to-odt', `zip=${isZip(b)} entries=${entries.map((e) => e.name).join(',')}`);
-});
-
-/* 9. Sign: typed signature + stamp ---------------------------------------- */
+/* 8. Sign: typed signature + stamp ---------------------------------------- */
 await flow('sign typed signature + stamp', async (page) => {
   await page.goto(`${BASE}/pdf-sign`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('text-1p.pdf'));
@@ -392,7 +354,7 @@ await flow('sign typed signature + stamp', async (page) => {
   else fail('sign-stamp', `valid=${isPdf(b)} pages=${n}`);
 });
 
-/* 10. Sign: fill form fields ------------------------------------------------ */
+/* 9. Sign: fill form fields ------------------------------------------------ */
 await flow('sign fill form fields', async (page) => {
   await page.goto(`${BASE}/pdf-sign`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('form.pdf'));
@@ -412,7 +374,7 @@ await flow('sign fill form fields', async (page) => {
   else fail('sign-form-fill', `valid=${isPdf(b)} pages=${n}`);
 });
 
-/* 11. Encrypted PDF → graceful error --------------------------------------- */
+/* 10. Encrypted PDF → graceful error --------------------------------------- */
 await flow('encrypted PDF graceful error', async (page) => {
   await page.goto(`${BASE}/pdf-compress`, { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('encrypted.pdf'));
@@ -427,7 +389,7 @@ await flow('encrypted PDF graceful error', async (page) => {
   else fail('encrypted-reject', `unexpected: ${text.slice(0, 60)}`);
 });
 
-/* 12. Redirects from the default host -------------------------------------- */
+/* 11. Redirects from the default host -------------------------------------- */
 // The repo is `swd543/pdfboogie` (renamed from `pdf`; GitHub keeps the old
 // repo URL 301-ing to the new one). The current GitHub Pages project page
 // is swd543.github.io/pdfboogie/ — with the custom domain bound it 301s to
@@ -454,7 +416,7 @@ await flow('encrypted PDF graceful error', async (page) => {
   else fail('redirect /pdf/ (retired old path)', `${old.status} → ${oldLoc}`);
 }
 
-/* 13. Ad network requests (must be zero — ads inert, no client id) --------- */
+/* 12. Ad network requests (must be zero — ads inert, no client id) --------- */
 if (adRequests.length === 0)
   ok('no ad-network requests', '0 pagead2/doubleclick requests across all flows');
 else fail('no ad-network requests', `${adRequests.length}: ${adRequests[0]}`);

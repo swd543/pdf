@@ -1,8 +1,8 @@
 /**
  * Shared single-PDF input presentation (handoff P2.1).
  *
- * Dumb presentational component for the five single-PDF tools (Compress,
- * Combine, PDF-to-image, PDF-to-doc, Sign): chain note, drop zone, and the
+ * Dumb presentational component for the four single-PDF tools (Compress,
+ * Combine, PDF-to-image, Sign): chain note, drop zone, and the
  * file row with a remove button. Tool-specific validation, PDF opening,
  * phases and processing stay in the route (P2.2: no universal tool hook).
  */

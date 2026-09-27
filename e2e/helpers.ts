@@ -3,7 +3,7 @@
  *  - file dropping (synthetic HTML5 drag&drop + native <input> path)
  *  - in-page canvas image generation (PNG/JPEG/WebP, exact dimensions)
  *  - download capture (real browser downloads of the site's blobs)
- *  - Node-side validators for PDF / ZIP / PNG / JPEG / WebP / DOCX / ODT
+ *  - Node-side validators for PDF / ZIP / PNG / JPEG / WebP
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -372,38 +372,6 @@ export function webpSize(data: Uint8Array): { w: number; h: number } | null {
     return { w, h: (h >>> 0) + 1 };
   }
   return null;
-}
-
-const stripXmlTags = (xml: string) => xml.replace(/<[^>]+>/g, ' ');
-
-export function docxText(data: Uint8Array): string {
-  const entries = unzipSync(data);
-  const xml = entries['word/document.xml'];
-  if (!xml) throw new Error('docx: word/document.xml missing');
-  return stripXmlTags(new TextDecoder().decode(xml)).replace(/\s+/g, ' ');
-}
-
-export function docxXml(data: Uint8Array): string {
-  const entries = unzipSync(data);
-  const xml = entries['word/document.xml'];
-  if (!xml) throw new Error('docx: word/document.xml missing');
-  return new TextDecoder().decode(xml);
-}
-
-export function odtXml(data: Uint8Array, part: string): string {
-  const entries = unzipSync(data);
-  const xml = entries[part];
-  if (!xml) throw new Error(`odt: ${part} missing`);
-  return new TextDecoder().decode(xml);
-}
-
-/** First ZIP entry name + compression method (ODF mimetype-first check). */
-export function firstZipEntry(data: Uint8Array): { name: string; method: number } {
-  const nlen = data.readUInt16LE(26);
-  return {
-    name: data.subarray(30, 30 + nlen).toString('ascii'),
-    method: data.readUInt16LE(8),
-  };
 }
 
 /** pdf-lib round-trip: read AcroForm field values from a saved PDF. */
