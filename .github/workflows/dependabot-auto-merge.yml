@@ -132,47 +132,25 @@ jobs:
               // mergeable but branch-protection-blocked: the common cause is
               // a stale base (main moved since the PR's CI ran, so the
               // required checks no longer cover the current merge ref).
-              // Update the branch to latest main; CI re-runs and the
-              // workflow_run trigger re-evaluates. Guarded so we never
-              // hot-loop: only behind-branches, and not if the PR was
-              // updated within the last 30 minutes. (No
-              // maintainer_can_modify check: for same-repo Dependabot PRs
-              // that flag is always false while the workflow token can
-              // still fast-forward the branch via update-branch.)
+              // Fast-forward the branch via update-branch; CI re-runs and
+              // the workflow_run trigger re-evaluates. The API itself
+              // rejects no-ops (already up to date), and a 30-minute
+              // updated_at guard keeps us from hot-looping.
               if (pr.mergeable_state === 'blocked') {
-                let behind = 0;
-                try {
-                  const { data: gql } = await github.graphql(
-                    `query($owner: String!, $name: String!, $n: Int!) {
-                      repository(owner: $owner, name: $name) {
-                        pullRequest(number: $n) { compare { statusBehindBy } }
-                      }
-                    }`,
-                    { owner, name: repo, n: pr.number },
-                  );
-                  behind = gql.repository.pullRequest?.compare?.statusBehindBy ?? 0;
-                } catch {
-                  /* comparison unavailable; skip the update */
-                }
                 const updatedAt = Date.parse(pr.updated_at) || 0;
                 const tooRecent = Date.now() - updatedAt < 30 * 60 * 1000;
-                if (behind > 0 && !tooRecent) {
-                  try {
-                    await github.rest.pulls.updateBranch({ owner, repo, pull_number: pr.number });
-                    core.info(
-                      `#${pr.number}: ${behind} commit(s) behind main; branch updated, waiting for CI`,
-                    );
-                    continue;
-                  } catch (e) {
-                    core.info(
-                      `#${pr.number}: branch update not possible (${e.status}); waiting`,
-                    );
-                    continue;
-                  }
+                if (tooRecent) {
+                  core.info(`#${pr.number}: blocked, updated ${pr.updated_at}; waiting`);
+                  continue;
                 }
-                core.info(
-                  `#${pr.number}: blocked by branch protection (${behind} behind, updated ${pr.updated_at}); waiting`,
-                );
+                try {
+                  await github.rest.pulls.updateBranch({ owner, repo, pull_number: pr.number });
+                  core.info(`#${pr.number}: branch fast-forwarded to main; waiting for CI`);
+                } catch (e) {
+                  core.info(
+                    `#${pr.number}: blocked and branch not updatable (${e.status}); waiting`,
+                  );
+                }
                 continue;
               }
 
