@@ -28,6 +28,9 @@ coverage/
 # playwright artifacts
 test-results/
 playwright-report/
-e2e/fixtures/
+e2e/fixtures/*
+# The encrypted fixture is committed (byte-stable across Ghostscript
+# versions — see e2e/make-fixtures.mjs): it must stay tracked.
+!e2e/fixtures/encrypted.pdf
 e2e/.tmp-input/
 e2e/playwright-report/

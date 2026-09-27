@@ -196,15 +196,21 @@ console.log('writing fixtures →', OUT);
 }
 
 // 6. encrypted.pdf — user-password protected (negative tests).
-//    pdf-lib has no working encryptor, so we shell out to Ghostscript (`gs`).
+//    pdf-lib has no working encryptor, so this is normally built with
+//    Ghostscript (`gs`) — but the *committed* fixture (e2e/fixtures/
+//    encrypted.pdf) is used whenever present, because Ghostscript output
+//    varies between versions and a byte-stable negative fixture keeps the
+//    E2E suite identical on every machine. gs is only the fallback for
+//    fresh clones that lost the committed file.
 {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  doc.addPage(A4).drawText('Secret MARK-ENC content.', { x: 72, y: 760, size: 11, font });
-  const src = path.join(OUT, '.tmp-enc-src.pdf');
-  fs.writeFileSync(src, await doc.save());
   const out = path.join(OUT, 'encrypted.pdf');
-  await new Promise((res, rej) => {
+  if (!fs.existsSync(out)) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage(A4).drawText('Secret MARK-ENC content.', { x: 72, y: 760, size: 11, font });
+    const src = path.join(OUT, '.tmp-enc-src.pdf');
+    fs.writeFileSync(src, await doc.save());
+    await new Promise((res, rej) => {
     execFile(
       'gs',
       [
@@ -228,10 +234,11 @@ console.log('writing fixtures →', OUT);
           : res(),
     );
   });
-  fs.rmSync(src, { force: true });
-  console.log(
-    `  ${'encrypted.pdf'.padEnd(20)} ${String(fs.statSync(out).size).padStart(8)} B  (gs-encrypted)`,
-  );
+    fs.rmSync(src, { force: true });
+    console.log(
+      `  ${'encrypted.pdf'.padEnd(20)} ${String(fs.statSync(out).size).padStart(8)} B  (gs-encrypted)`,
+    );
+  }
 }
 
 // 7. landscape-1p.pdf
