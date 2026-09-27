@@ -7,11 +7,11 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
-import { ChainNote } from '~/components/ChainBar';
-import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
-import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
+import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { SinglePdfInput } from '~/components/SinglePdfInput';
 import {
   type CompressMode,
   type CompressOutcome,
@@ -22,6 +22,7 @@ import type { DpiOption } from '~/features/pdf-to-image/logic';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, percentSaved, readFileBytes } from '~/lib/files';
+import { createOperation, isAbortError, type OperationHandle } from '~/lib/operation';
 import { renderPageThumbs } from '~/lib/thumbs';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
 import { expandAds } from '~/site/ads';
@@ -53,6 +54,10 @@ export default function PdfCompressPage() {
   // Lambda: `pickFile` is defined below; the hook invokes it in onMount.
   const chain = useChainedPdf((f) => pickFile([f]));
 
+  /** Cancellation for the in-flight compression (P1.6). */
+  let opHandle: OperationHandle | null = null;
+  onCleanup(() => opHandle?.cancel());
+
   const pickFile = (files: File[]) => {
     const candidate = files[0];
     if (!candidate) return;
@@ -81,7 +86,7 @@ export default function PdfCompressPage() {
     void (async () => {
       try {
         const bytes = new Uint8Array(await readFileBytes(candidate));
-        const r = await renderPageThumbs(bytes.slice(), 110, 12);
+        const r = await renderPageThumbs(bytes.slice(), { targetWidth: 110, maxThumbs: 12 });
         if (file()?.file !== candidate) return; // replaced by another file
         if (r.error) {
           setAutoNote(`couldn't analyze ${candidate.name} (${r.error})`);
@@ -101,6 +106,8 @@ export default function PdfCompressPage() {
   };
 
   const clear = () => {
+    opHandle?.cancel();
+    opHandle = null;
     setFile(null);
     setPhase('empty');
     setResult(null);
@@ -118,16 +125,19 @@ export default function PdfCompressPage() {
     setPhase('processing');
     setError('');
     setResult(null);
+    const onProgress: ProgressFn = (done, total, label) =>
+      setProgress({ done, total, label: label ?? '' });
+    const handle = createOperation(onProgress);
+    opHandle = handle;
     try {
       const data = await readFileBytes(f.file);
-      const onProgress: ProgressFn = (done, total, label) =>
-        setProgress({ done, total, label: label ?? '' });
       const outcome = await compressPdf(
         data,
         {
           mode: mode(),
           quality: quality() / 100,
           dpi: dpi() as DpiOption,
+          op: handle.op,
         },
         onProgress,
       );
@@ -135,8 +145,15 @@ export default function PdfCompressPage() {
       setResult({ ...outcome, name });
       setPhase('done');
     } catch (err) {
+      if (isAbortError(err)) {
+        setPhase('ready');
+        setProgress({ done: 0, total: 1, label: '' });
+        return;
+      }
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      opHandle = null;
     }
   };
 
@@ -260,39 +277,20 @@ export default function PdfCompressPage() {
         >
           <div class="panel">
             <div class="panel-body">
-              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
-              <Show when={!file() || phase() === 'empty'}>
-                <DropZone
-                  accept="application/pdf,.pdf"
-                  title="Drop a PDF here"
-                  subtitle="compressed entirely on your device"
-                  busy={phase() === 'processing'}
-                  onFiles={pickFile}
-                />
-              </Show>
+              <SinglePdfInput
+                file={file}
+                pageCount={pageCount}
+                showDrop={() => !file() || phase() === 'empty'}
+                dropTitle="Drop a PDF here"
+                dropSubtitle="compressed entirely on your device"
+                busy={phase() === 'processing'}
+                disableRemove={phase() === 'processing'}
+                note={chain.note}
+                dismissNote={chain.dismissNote}
+                onFiles={pickFile}
+                onClear={clear}
+              />
               <Show when={file()}>
-                <div class="file-row" style="margin-bottom: 0.5rem">
-                  <span class="file-name" title={file()!.name}>
-                    {file()!.name}
-                  </span>
-                  <span class="file-size">
-                    {humanSize(file()!.size)}
-                    {pageCount() > 0
-                      ? ` · ${pageCount()} ${pageCount() === 1 ? 'page' : 'pages'}`
-                      : ''}
-                  </span>
-                  <span class="file-actions">
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-icon btn-ghost"
-                      aria-label="Remove PDF"
-                      onClick={clear}
-                      disabled={phase() === 'processing'}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </span>
-                </div>
                 <Show when={thumbs().length > 0}>
                   <div class="thumb-strip">
                     <For each={thumbs()}>

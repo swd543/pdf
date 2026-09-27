@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mergeFiles, mergePages } from './logic';
 
 async function pdfWithSize(w: number, h: number): Promise<Uint8Array> {
@@ -162,6 +162,47 @@ describe('mergePages (page-level reordering)', () => {
         () => {},
       ),
     ).rejects.toThrow(/a\.pdf/);
+  });
+
+  it('loads each source document exactly once for interleaved page order', async () => {
+    const a = await pdfWithPages([
+      [500, 600], // a.1
+      [700, 400], // a.2
+    ]);
+    const b = await pdfWithPages([
+      [800, 200], // b.1
+      [900, 100], // b.2
+    ]);
+
+    // pdflib() resolves to the same module instance, so the static load()
+    // is spy-able. A1, B1, A2, B2 must parse each file exactly once.
+    const loadSpy = vi.spyOn(PDFDocument, 'load');
+    let out: Uint8Array;
+    try {
+      out = await mergePages(
+        [
+          { kind: 'pdf', name: 'a.pdf', bytes: a, page: 1 },
+          { kind: 'pdf', name: 'b.pdf', bytes: b, page: 1 },
+          { kind: 'pdf', name: 'a.pdf', bytes: a, page: 2 },
+          { kind: 'pdf', name: 'b.pdf', bytes: b, page: 2 },
+        ],
+        { pageSize: 'a4', marginPt: 0 },
+        () => {},
+      );
+      // assert before restore — mockRestore() also clears call history
+      expect(loadSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      loadSpy.mockRestore();
+    }
+
+    const doc = await PDFDocument.load(out);
+    const sizes = doc.getPages().map((p) => [p.getWidth(), p.getHeight()]);
+    expect(sizes).toEqual([
+      [500, 600],
+      [800, 200],
+      [700, 400],
+      [900, 100],
+    ]);
   });
 
   it('requires at least one page', async () => {

@@ -80,6 +80,8 @@ export interface DocOptions {
    * from the document's median glyph size.
    */
   bodySizePt?: number;
+  /** Cancellation context — checkpoint between pages (P1.6). */
+  op?: import('~/lib/operation').OperationContext;
 }
 
 /* ------------------------------------------------------------------ */
@@ -536,8 +538,9 @@ export async function pdfToDoc(
     const pages: RawTextItem[][] = [];
     for (let p = from; p <= to; p += 1) {
       onProgress(p - from, to - from + 1, `Reading page ${p} of ${to - from + 1}`);
+      if (options.op) await options.op.checkpoint();
+      else await yieldToBrowser();
       pages.push(await extractPage(pdf, p));
-      await yieldToBrowser();
     }
 
     onProgress(to - from + 1, to - from + 2, 'Reconstructing text…');

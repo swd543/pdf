@@ -462,25 +462,43 @@ test.describe('ordering (merge)', () => {
       { name: 'pic.png', mime: 'image/png', w: 800, h: 600, paint: 'hgrad' },
     ]);
     await expect(page.locator('.seq-tile')).toHaveCount(1);
-    const img = page.locator('img.seq-thumb');
+
+    // Image pages now preview as a CSS page frame (shared geometry with the
+    // real PDF writer): the frame box is the output page size at a fixed
+    // tile scale, the image letterboxes inside it via object-fit, and the
+    // margin insets the frame's content. No canvas re-renders per change.
+    const frame = page.locator('.seq-image-page');
+    const img = frame.locator('img');
     await expect(img).toBeVisible();
-    const srcOf = () => img.getAttribute('src');
-    const fit = (await srcOf())!;
-    expect(fit).toMatch(/^data:image\//);
+    const styleOf = () => frame.getAttribute('style');
+    const fitStyle = (await styleOf())!;
+    expect(fitStyle).toMatch(/width:/);
+    expect(fitStyle).toMatch(/height:/);
+    const fitBox = (await frame.boundingBox())!;
+    // A fitted landscape page is wider than it is tall.
+    expect(fitBox.width).toBeGreaterThan(fitBox.height);
 
-    // A4: a portrait page frame around the landscape image
+    // A4: portrait frame — taller than the fitted frame.
     await page.selectOption('#mergePageSize', 'a4');
-    await expect.poll(srcOf).not.toBe(fit);
-    const a4 = (await srcOf())!;
+    await expect.poll(styleOf).not.toBe(fitStyle);
+    const a4Style = (await styleOf())!;
+    const a4Box = (await frame.boundingBox())!;
+    expect(a4Box.height).toBeGreaterThan(fitBox.height);
 
-    // Letter: different aspect → different preview
+    // Letter: different aspect → different frame.
     await page.selectOption('#mergePageSize', 'letter');
-    await expect.poll(srcOf).not.toBe(a4);
+    await expect.poll(styleOf).not.toBe(a4Style);
 
-    // margins shrink the image inside the frame
-    const letter = (await srcOf())!;
+    // Margins inset the image inside the frame; the page frame itself keeps
+    // its size, only the inset changes.
+    await page.selectOption('#mergePageSize', 'a4');
+    const before = (await styleOf())!;
+    expect(before).toMatch(/--preview-margin:\s*0px/);
     await page.selectOption('#mergeMargin', '24');
-    await expect.poll(srcOf).not.toBe(letter);
+    await expect.poll(styleOf).not.toBe(before);
+    expect((await styleOf())!).toMatch(/--preview-margin:\s*\d+px/);
+    const afterBox = (await frame.boundingBox())!;
+    expect(afterBox.height).toBeCloseTo(a4Box.height, 0);
     assertClean();
   });
 
@@ -982,8 +1000,10 @@ test.describe('sign & fill', () => {
     await expect(page.locator('.sig-preview img')).toHaveCount(1);
     // placing mode starts automatically on "Use this signature"
     const stage = page.locator('.stage[data-page="1"]');
+    // element-based click: Playwright scrolls the (tall) stage into view
+    // first, so the placement lands inside the viewport.
     const sbox = (await stage.boundingBox())!;
-    await page.mouse.click(sbox.x + sbox.width / 2, sbox.y + sbox.height * 0.75);
+    await stage.click({ position: { x: sbox.width / 2, y: sbox.height * 0.75 } });
     await expect(page.locator('.stamp')).toHaveCount(1);
 
     const inputSize = await page.evaluate(async () =>
@@ -1007,8 +1027,10 @@ test.describe('sign & fill', () => {
     await expect(page.locator('.sig-preview img')).toHaveCount(1);
     // placing mode starts automatically on "Use this signature"
     const stage = page.locator('.stage[data-page="1"]');
+    // element-based click: Playwright scrolls the (tall) stage into view
+    // first, so the placement lands inside the viewport.
     const sbox = (await stage.boundingBox())!;
-    await page.mouse.click(sbox.x + 80, sbox.y + sbox.height * 0.8);
+    await stage.click({ position: { x: 80, y: sbox.height * 0.8 } });
     await expect(page.locator('.stamp')).toHaveCount(1);
     const pdf = await captureDownload(page, () =>
       clickButton(page, /Download signed PDF \(1 stamp\)/),

@@ -6,7 +6,7 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
 import {
   AlertIcon,
@@ -20,6 +20,8 @@ import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell
 import { imagesToPdf, type PageSize } from '~/features/image-to-pdf/logic';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, nextId } from '~/lib/files';
+import { createObjectUrlRegistry } from '~/lib/object-urls';
+import { createOperation, isAbortError, type OperationHandle } from '~/lib/operation';
 import { type FileItem, isImageFile, yieldToBrowser } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -55,6 +57,15 @@ export default function ImageToPdfPage() {
 
   const totalInputSize = () => items().reduce((sum, i) => sum + i.size, 0);
 
+  // Object URLs are route-owned resources; release them even when the user
+  // navigates away mid-flow (handoff P0.4).
+  const urls = createObjectUrlRegistry();
+  onCleanup(() => urls.clear());
+
+  /** Cancellation for the in-flight conversion (P1.6). */
+  let opHandle: OperationHandle | null = null;
+  onCleanup(() => opHandle?.cancel());
+
   const addFiles = async (files: File[]) => {
     const accepted: File[] = [];
     const rejected: string[] = [];
@@ -74,7 +85,7 @@ export default function ImageToPdfPage() {
     setError(errors.join(' '));
 
     for (const file of toAdd) {
-      const url = URL.createObjectURL(file);
+      const url = urls.create(file);
       let width = 0;
       let height = 0;
       try {
@@ -85,7 +96,7 @@ export default function ImageToPdfPage() {
       } catch {
         /* dimensions are cosmetic — ignore decode failures */
       }
-      await yieldToBrowser();
+      if (items().length > 0) await yieldToBrowser(); // keep UI responsive while decoding
       setItems([
         ...items(),
         {
@@ -118,7 +129,7 @@ export default function ImageToPdfPage() {
 
   const remove = (id: string) => {
     const item = items().find((x) => x.id === id);
-    if (item?.thumb) URL.revokeObjectURL(item.thumb);
+    if (item?.thumb) urls.revoke(item.thumb);
     const list = items().filter((x) => x.id !== id);
     setItems(list);
     if (list.length === 0) {
@@ -134,17 +145,28 @@ export default function ImageToPdfPage() {
     setError('');
     setResult(null);
     setProgress({ done: 0, total: items().length, label: 'Starting…' });
+    const handle = createOperation((done, total, label) =>
+      setProgress({ done, total, label: label ?? '' }),
+    );
+    opHandle = handle;
     try {
       const bytes = await imagesToPdf(
         items().map((i) => i.file),
-        { pageSize: pageSize(), marginPt: margin() },
+        { pageSize: pageSize(), marginPt: margin(), op: handle.op },
         (done, total, label) => setProgress({ done, total, label: label ?? '' }),
       );
       setResult({ bytes, name: `${baseName()}.pdf` });
       setPhase('done');
     } catch (err) {
+      if (isAbortError(err)) {
+        setPhase('ready');
+        setProgress({ done: 0, total: items().length, label: '' });
+        return;
+      }
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      opHandle = null;
     }
   };
 
@@ -154,6 +176,10 @@ export default function ImageToPdfPage() {
   };
 
   const startOver = () => {
+    // A true reset: drop the list, revoke its URLs, clear stale errors.
+    urls.clear();
+    setItems([]);
+    setError('');
     setPhase('empty');
     setResult(null);
   };

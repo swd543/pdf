@@ -19,27 +19,29 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
+import { createMemo, createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
 import { ChainNote } from '~/components/ChainBar';
-import {
-  AlertIcon,
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CloseIcon,
-  DownloadIcon,
-  GripIcon,
-  SpinnerIcon,
-  TrashIcon,
-} from '~/components/Icons';
+import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
 
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
-import type { PageSize } from '~/features/image-to-pdf/logic';
+import { imagePageDimensions, type PageSize } from '~/features/image-to-pdf/logic';
 import { type MergePageRef, mergePages } from '~/features/pdf-merge/logic';
+import { MergeFileList } from '~/features/pdf-merge/MergeFileList';
+import { MergePageStrip } from '~/features/pdf-merge/MergePageStrip';
+import {
+  moveBlockTo as moveBlockToTransform,
+  moveFile as moveFileTransform,
+  nudgeBlock,
+  selectOnTileClick,
+} from '~/features/pdf-merge/sequence';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, nextId, readFileBytes } from '~/lib/files';
-import { renderImagePagePreview, renderPageThumbs } from '~/lib/thumbs';
+import { MAX_EAGER_INPUT_BYTES, MAX_INTERACTIVE_PAGES, MAX_PAGE_THUMBNAILS } from '~/lib/limits';
+import { createObjectUrlRegistry } from '~/lib/object-urls';
+import { createOperation, isAbortError, type OperationHandle } from '~/lib/operation';
+import { renderPageThumbs } from '~/lib/thumbs';
 import { type FileItem, isImageFile, isPdfFile, yieldToBrowser } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -47,12 +49,17 @@ import { jsonLdFor, routeMeta } from '~/site/seo';
 
 interface Item extends FileItem {
   kind: 'pdf' | 'image';
-  /** PDF bytes (read up front so the logic module can copy pages). */
+  /** PDF bytes (read up front so the logic module can copy pages once). */
   pdfBytes?: Uint8Array;
   /** PDF: true page count; image: 1. 0 while the PDF is still loading. */
   pageCount: number;
-  /** JPEG data URLs for PDF pages (images use the output preview). */
+  /** JPEG data URLs for PDF pages. */
   thumbs: string[];
+  /** Image-only: one object URL for the preview (decoded once at add time). */
+  thumbUrl?: string;
+  /** Image-only: pixel dimensions (EXIF orientation applied). */
+  imageWidth?: number;
+  imageHeight?: number;
   /** Set when the PDF couldn't be rendered (e.g. password-protected). */
   thumbError?: string;
 }
@@ -68,10 +75,11 @@ interface Seq {
 type Phase = 'empty' | 'ready' | 'processing' | 'done';
 
 const MAX_FILES = 30;
-/** Thumbnail cap per file — beyond this, tiles show the page number only. */
-const THUMB_CAP = 200;
 /** Pointer travel (px) before a grip press becomes a drag. */
 const DRAG_THRESHOLD = 6;
+/** CSS size of the tile's preview area (118px tile − 0.4rem padding). */
+const TILE_W = 105;
+const TILE_H = 140;
 
 export default function MergePage() {
   const meta = routeMeta['/pdf-merge']!;
@@ -98,29 +106,32 @@ export default function MergePage() {
    *  Lambda: `addFiles` is defined below; the hook invokes it in onMount. */
   const chain = useChainedPdf((f) => addFiles([f]));
 
-  /** Output-aware previews for image tiles (page size + margins). */
-  const [imgPrev, setImgPrev] = createSignal<Record<string, string>>({});
-  let imgPrevGen = 0;
+  // Object URLs are route-owned resources; always release them on unmount
+  // (handoff P0.4) — Start over / remove revoke individually.
+  const urls = createObjectUrlRegistry();
+  onCleanup(() => urls.clear());
 
-  createEffect(() => {
-    const ps = pageSize();
-    const mg = margin();
-    const imgs = items().filter((i) => i.kind === 'image');
-    if (imgs.length === 0) return;
-    const gen = ++imgPrevGen;
-    void (async () => {
-      const next = { ...imgPrev() };
-      for (const i of imgs) {
-        try {
-          next[i.id] = await renderImagePagePreview(i.file, ps, mg);
-        } catch {
-          // keep any previous preview; the tile falls back to a blank
-        }
-        if (gen !== imgPrevGen) return;
-      }
-      if (gen === imgPrevGen) setImgPrev(next);
-    })();
-  });
+  /** Cancellation for the in-flight merge (P1.6). */
+  let opHandle: OperationHandle | null = null;
+  onCleanup(() => opHandle?.cancel());
+
+  /** Cleanup for a grip drag in flight (navigation mid-drag, P1.7). */
+  let dragCleanup: (() => void) | null = null;
+  onCleanup(() => dragCleanup?.());
+
+  /**
+   * CSS page frame for an image tile. The image itself is decoded once (one
+   * object URL); page-size/margin changes only recompute these styles —
+   * the same geometry the output writer uses (`imagePageDimensions`).
+   */
+  const imagePreviewStyle = (item: { imageWidth?: number; imageHeight?: number }) => {
+    const [pw, ph] = imagePageDimensions(item.imageWidth ?? 4, item.imageHeight ?? 3, pageSize());
+    const scale = Math.min(TILE_W / pw, TILE_H / ph);
+    const w = Math.max(1, Math.round(pw * scale));
+    const h = Math.max(1, Math.round(ph * scale));
+    const marginPx = Math.max(0, Math.round((margin() / pw) * w));
+    return { width: `${w}px`, height: `${h}px`, '--preview-margin': `${marginPx}px` } as const;
+  };
 
   const itemMap = createMemo(() => new Map(items().map((i) => [i.id, i])));
   const itemOf = (id: string) => itemMap().get(id);
@@ -139,12 +150,8 @@ export default function MergePage() {
    *  the committed order otherwise. */
   const previewSeq = createMemo<Seq[]>(() => {
     if (!dragging()) return seq();
-    const block = dragBlock();
-    const list = seq();
-    const drag = list.filter((s) => block.has(s.id));
-    const rest = list.filter((s) => !block.has(s.id));
-    const idx = Math.max(0, Math.min(dragIdx() ?? rest.length, rest.length));
-    return [...rest.slice(0, idx), ...drag, ...rest.slice(idx)];
+    const rest = seq().filter((s) => !dragBlock().has(s.id));
+    return moveBlockToTransform(seq(), dragBlock(), dragIdx() ?? rest.length);
   });
 
   /* ---------------- FLIP animation ------------------------------------ */
@@ -178,24 +185,15 @@ export default function MergePage() {
   const [anchor, setAnchor] = createSignal<string | null>(null);
 
   const toggleSelect = (e: MouseEvent, id: string) => {
-    const ids = seq().map((s) => s.id);
-    const cur = new Set(selected());
-    // Shift+click: extend the selection over the range anchor → this tile.
-    if (e.shiftKey && anchor()) {
-      const a = ids.indexOf(anchor()!);
-      const b = ids.indexOf(id);
-      if (a !== -1 && b !== -1) {
-        const [lo, hi] = a < b ? [a, b] : [b, a];
-        for (const x of ids.slice(lo, hi + 1)) cur.add(x);
-        setSelected([...cur]);
-        return;
-      }
-    }
-    // Plain and Ctrl/⌘+click: toggle this tile, keep the rest.
-    if (cur.has(id)) cur.delete(id);
-    else cur.add(id);
-    setSelected([...cur]);
-    setAnchor(id);
+    const r = selectOnTileClick(
+      seq().map((s) => s.id),
+      selected(),
+      id,
+      e.shiftKey,
+      anchor(),
+    );
+    setSelected(r.ids);
+    setAnchor(r.anchor);
   };
 
   /* ---------------- reordering ---------------------------------------- */
@@ -203,34 +201,8 @@ export default function MergePage() {
   /** Nudge the selection (or a single tile) one slot left/right. The
    *  selection moves as a unit; non-selected tiles fill the vacated slot. */
   const nudgeSelection = (tileId: string, dir: -1 | 1) => {
-    const sel = new Set(selected());
-    if (!sel.has(tileId)) sel.add(tileId);
-    const list = [...seq()];
-    let min = -1;
-    let max = -1;
-    list.forEach((x, i) => {
-      if (sel.has(x.id)) {
-        if (min < 0) min = i;
-        max = i;
-      }
-    });
-    if (min < 0) return;
-    if (dir === -1 && min === 0) return;
-    if (dir === 1 && max === list.length - 1) return;
-    flip(240, () => {
-      const next = [...list];
-      if (dir === -1) {
-        // The slot before the block moves to after it; once that element is
-        // removed the block itself has shifted left by one, so "after the
-        // block" is index `max` in the shortened list.
-        const [el] = next.splice(min - 1, 1);
-        next.splice(max, 0, el!);
-      } else {
-        const [el] = next.splice(max + 1, 1);
-        next.splice(min, 0, el!);
-      }
-      setSeq(next);
-    });
+    const next = nudgeBlock(seq(), new Set(selected()), tileId, dir);
+    if (next) flip(240, () => setSeq(next));
   };
 
   /** Pointer-based drag (mouse + touch): starts on a grip, previews the
@@ -292,6 +264,7 @@ export default function MergePage() {
       window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onKey);
       document.body.classList.remove('seq-dragging');
+      dragCleanup = null;
       if (active) {
         flip(240, () => {
           if (commit) setSeq([...previewSeq()]);
@@ -305,6 +278,8 @@ export default function MergePage() {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape' && active) finish(false);
     };
+    // If the route unmounts mid-drag (P1.7), onCleanup runs this.
+    dragCleanup = () => finish(false);
     window.addEventListener('pointermove', onMove, { passive: false });
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
@@ -320,35 +295,18 @@ export default function MergePage() {
   /** Move a whole file's pages (in their current relative order) one file
    *  position up/down, keeping them contiguous. */
   const moveFile = (id: string, dir: -1 | 1) => {
-    const list = [...items()];
-    const from = list.findIndex((x) => x.id === id);
-    const to = from + dir;
-    if (from < 0 || to < 0 || to >= list.length) return;
-    const [item] = list.splice(from, 1);
-    list.splice(to, 0, item!);
-    setItems(list);
-
-    const s = seq();
-    const block = s.filter((x) => x.file === id);
-    const rest = s.filter((x) => x.file !== id);
-    if (block.length === 0) return;
-    // The neighbour the file lands next to after the move (the moved file
-    // itself sits at index `to` in the spliced list).
-    const anchorId = dir === 1 ? list[to - 1]!.id : list[to + 1]!.id;
-    let insertAt: number;
-    if (dir === 1) {
-      // after the anchor file's last page
-      let last = -1;
-      rest.forEach((x, i) => {
-        if (x.file === anchorId) last = i;
-      });
-      insertAt = last < 0 ? rest.length : last + 1;
-    } else {
-      // before the anchor file's first page
-      insertAt = rest.findIndex((x) => x.file === anchorId);
-      if (insertAt < 0) insertAt = 0;
-    }
-    flip(240, () => setSeq([...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)]));
+    const r = moveFileTransform(
+      items().map((x) => x.id),
+      seq(),
+      id,
+      dir,
+    );
+    if (!r) return;
+    const pos = new Map(r.fileOrder.map((fid, i) => [fid, i]));
+    flip(240, () => {
+      setItems([...items()].sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0)));
+      setSeq(r.order);
+    });
   };
 
   const baseName = () => {
@@ -384,12 +342,43 @@ export default function MergePage() {
     if (truncated) errors.push(`Limit is ${MAX_FILES} files — extras were skipped.`);
     setError(errors.join(' '));
 
+    // Global budgets: one thumb per page across all files (P0.2), a cap on
+    // interactive pages, and a cap on eager in-memory bytes (P1.4).
+    let thumbBudget = MAX_PAGE_THUMBNAILS - items().reduce((sum, i) => sum + i.thumbs.length, 0);
+
     for (const file of toAdd) {
+      if (pageTotal() >= MAX_INTERACTIVE_PAGES) {
+        errors.push(
+          `Page limit is ${MAX_INTERACTIVE_PAGES} — remaining files were skipped. Remove pages or files to add more.`,
+        );
+        break;
+      }
+      const usedBytes = items().reduce((sum, i) => sum + i.size, 0);
+      if (usedBytes + file.size > MAX_EAGER_INPUT_BYTES) {
+        errors.push(
+          `Total size limit is ${Math.round(MAX_EAGER_INPUT_BYTES / 1024 / 1024)} MB of inputs — "${cleanFileName(file.name)}" was skipped.`,
+        );
+        continue;
+      }
       await yieldToBrowser();
       const kind = isPdfFile(file) ? 'pdf' : 'image';
       const id = nextId('file');
 
       if (kind === 'image') {
+        // Decode once (dimensions for the output-aware preview frame); the
+        // preview itself is CSS-only and reacts to size/margin changes.
+        const thumbUrl = urls.create(file);
+        let imageWidth = 4;
+        let imageHeight = 3;
+        try {
+          const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+          imageWidth = bitmap.width;
+          imageHeight = bitmap.height;
+          bitmap.close();
+        } catch {
+          // Decode failures surface as a real error at merge time; the
+          // tile falls back to a 4:3 frame until then.
+        }
         setItems([
           ...items(),
           {
@@ -401,6 +390,9 @@ export default function MergePage() {
             kind,
             pageCount: 1,
             thumbs: [],
+            thumbUrl,
+            imageWidth,
+            imageHeight,
           },
         ]);
         setSeq([...seq(), { id: `${id}::1`, file: id, page: 1 }]);
@@ -432,13 +424,20 @@ export default function MergePage() {
         },
       ]);
 
-      const r = await renderPageThumbs(pdfBytes.slice(), 110, THUMB_CAP);
+      const r = await renderPageThumbs(pdfBytes.slice(), {
+        targetWidth: 110,
+        maxThumbs: Math.max(0, thumbBudget),
+        maxDocumentPages: MAX_INTERACTIVE_PAGES - pageTotal(),
+      });
       if (r.error) {
-        patchItem(id, { pageCount: 0, thumbError: r.error });
+        // Drop the eager bytes too — the file cannot participate.
+        patchItem(id, { pdfBytes: undefined, pageCount: 0, thumbError: r.error });
+        errors.push(`${cleanFileName(file.name)}: ${r.error}`);
         continue;
       }
       // File may have been removed while loading.
       if (!itemOf(id)) continue;
+      thumbBudget -= r.thumbs.length;
       patchItem(id, { pageCount: r.count, thumbs: r.thumbs });
       const pages: Seq[] = Array.from({ length: r.count }, (_, i) => ({
         id: `${id}::${i + 1}`,
@@ -456,6 +455,8 @@ export default function MergePage() {
   };
 
   const remove = (id: string) => {
+    const item = itemOf(id);
+    if (item?.thumbUrl) urls.revoke(item.thumbUrl);
     setItems(items().filter((x) => x.id !== id));
     setSeq(seq().filter((x) => x.file !== id));
     // Drop selections of removed pages.
@@ -474,6 +475,10 @@ export default function MergePage() {
     setError('');
     setResult(null);
     setProgress({ done: 0, total: list.length, label: 'Starting…' });
+    const handle = createOperation((done, total, label) =>
+      setProgress({ done, total, label: label ?? '' }),
+    );
+    opHandle = handle;
     try {
       const refs: MergePageRef[] = list.map((s) => {
         const it = itemOf(s.file)!;
@@ -483,14 +488,21 @@ export default function MergePage() {
       });
       const bytes = await mergePages(
         refs,
-        { pageSize: pageSize(), marginPt: margin() },
+        { pageSize: pageSize(), marginPt: margin(), op: handle.op },
         (done, total, label) => setProgress({ done, total, label: label ?? '' }),
       );
       setResult({ bytes, name: `${baseName()}.pdf` });
       setPhase('done');
     } catch (err) {
+      if (isAbortError(err)) {
+        setPhase('ready');
+        setProgress({ done: 0, total: list.length, label: '' });
+        return;
+      }
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      opHandle = null;
     }
   };
 
@@ -500,11 +512,11 @@ export default function MergePage() {
   };
 
   const startOver = () => {
+    urls.clear();
     setItems([]);
     setSeq([]);
     setSelected([]);
     setAnchor(null);
-    setImgPrev({});
     setDragging(null);
     setDragIdx(null);
     setPhase('empty');
@@ -599,172 +611,32 @@ export default function MergePage() {
                 busy={phase() === 'processing'}
                 onFiles={addFiles}
               />
-              <Show when={items().length > 0}>
-                <ul class="filelist" aria-label="Files to merge">
-                  <For each={items()}>
-                    {(item) => (
-                      <li class="file-row">
-                        <span class="file-thumb" />
-                        <span class="file-name" title={item.name}>
-                          {item.name}
-                        </span>
-                        <span class="file-size">
-                          {humanSize(item.size)}
-                          {item.kind === 'pdf' && item.pageCount > 0
-                            ? ` · ${item.pageCount} ${item.pageCount === 1 ? 'page' : 'pages'}`
-                            : item.kind === 'image'
-                              ? ' · image'
-                              : ''}
-                          <Show when={item.thumbError}>
-                            <span class="file-warn" role="note">
-                              {' '}
-                              · {item.thumbError}
-                            </span>
-                          </Show>
-                        </span>
-                        <span class="file-actions">
-                          <button
-                            type="button"
-                            class="btn btn-sm btn-icon btn-ghost"
-                            aria-label={`Move ${item.name} up`}
-                            onClick={() => moveFile(item.id, -1)}
-                            disabled={phase() !== 'ready'}
-                          >
-                            <ArrowUpIcon />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-sm btn-icon btn-ghost"
-                            aria-label={`Move ${item.name} down`}
-                            onClick={() => moveFile(item.id, 1)}
-                            disabled={phase() !== 'ready'}
-                          >
-                            <ArrowDownIcon />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-sm btn-icon btn-ghost"
-                            aria-label={`Remove ${item.name}`}
-                            onClick={() => remove(item.id)}
-                            disabled={phase() !== 'ready'}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </span>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-
-                <Show when={seq().length > 0 || loadingFiles()}>
-                  <div class="seq-wrap">
-                    <div class="seq-head">
-                      <span class="seq-title">Page order</span>
-                      <span class="seq-count">
-                        {pageTotal()} {pageTotal() === 1 ? 'page' : 'pages'}
-                      </span>
-                      <Show when={selected().length > 0}>
-                        <button type="button" class="seq-clear" onClick={() => setSelected([])}>
-                          <CloseIcon />
-                          {selected().length} selected
-                        </button>
-                      </Show>
-                    </div>
-                    <ul
-                      class="page-strip"
-                      aria-label="Page order — tap tiles to select (Ctrl to add, Shift for a range), drag the grip to reorder"
-                    >
-                      <For each={previewSeq()}>
-                        {(s) => {
-                          const it = () => itemOf(s.file);
-                          const thumb = () =>
-                            it()?.kind === 'image'
-                              ? (imgPrev()[s.file] ?? '')
-                              : (it()?.thumbs[s.page - 1] ?? '');
-                          return (
-                            <li
-                              class="seq-tile"
-                              data-seq-id={s.id}
-                              ref={(el) => {
-                                if (el) tileEls.set(s.id, el);
-                                else tileEls.delete(s.id);
-                              }}
-                              onClick={(e) => toggleSelect(e, s.id)}
-                              classList={{
-                                'is-selected': selectedSet().has(s.id),
-                                'is-dragging': dragBlock().has(s.id),
-                                'is-drag-source': dragging() === s.id,
-                              }}
-                            >
-                              <button
-                                type="button"
-                                class="seq-grip"
-                                aria-label={`Drag to reorder page ${s.page} of ${it()?.name}`}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                }}
-                                onPointerDown={(e) => startGripDrag(e, s.id)}
-                              >
-                                <GripIcon />
-                              </button>
-                              {thumb() ? (
-                                <img
-                                  class="seq-thumb"
-                                  src={thumb()}
-                                  alt=""
-                                  loading="lazy"
-                                  draggable={false}
-                                />
-                              ) : (
-                                <div class="seq-thumb seq-thumb-blank">
-                                  <span>{s.page}</span>
-                                </div>
-                              )}
-                              <span class="seq-chip">p{s.page}</span>
-                              <span class="seq-src" title={it()?.name}>
-                                {it()?.name}
-                              </span>
-                              <span class="seq-move">
-                                <button
-                                  type="button"
-                                  aria-label={`Move page ${s.page} of ${it()?.name} left`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    nudgeSelection(s.id, -1);
-                                  }}
-                                  disabled={phase() !== 'ready'}
-                                >
-                                  ‹
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Move page ${s.page} of ${it()?.name} right`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    nudgeSelection(s.id, 1);
-                                  }}
-                                  disabled={phase() !== 'ready'}
-                                >
-                                  ›
-                                </button>
-                              </span>
-                            </li>
-                          );
-                        }}
-                      </For>
-                      <Show when={loadingFiles()}>
-                        <li class="seq-tile seq-tile-loading">
-                          <div class="seq-thumb seq-thumb-blank">
-                            <span>…</span>
-                          </div>
-                          <span class="seq-src">loading pages…</span>
-                        </li>
-                      </Show>
-                    </ul>
-                  </div>
-                </Show>
-              </Show>
+              <MergeFileList
+                items={items}
+                onMoveUp={(id) => moveFile(id, -1)}
+                onMoveDown={(id) => moveFile(id, 1)}
+                onRemove={remove}
+                disabled={() => phase() !== 'ready'}
+              />
+              <MergePageStrip
+                seq={previewSeq}
+                itemOf={itemOf}
+                selected={selectedSet}
+                dragBlock={dragBlock}
+                dragging={dragging}
+                loading={loadingFiles}
+                pageTotal={pageTotal}
+                onTileClick={toggleSelect}
+                onGripDown={startGripDrag}
+                onNudge={nudgeSelection}
+                onClearSelection={() => setSelected([])}
+                registerTile={(id, el) => {
+                  if (el) tileEls.set(id, el);
+                  else tileEls.delete(id);
+                }}
+                imagePreviewStyle={imagePreviewStyle}
+                disabled={() => phase() !== 'ready'}
+              />
               <Show when={error()}>
                 <div class="error-card" role="alert">
                   <AlertIcon />

@@ -6,22 +6,20 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
-import { ChainNote } from '~/components/ChainBar';
-import { AlertIcon, CheckIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
-import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
-import {
-  type CombineOptions,
-  combinePages,
-  GRIDS,
-  previewSheets,
-  sheetCount,
-} from '~/features/pdf-combine/logic';
+import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
+import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { SinglePdfInput } from '~/components/SinglePdfInput';
+import { type CombineOptions, combinePages, GRIDS, sheetCount } from '~/features/pdf-combine/logic';
+import { PagePicker } from '~/features/pdf-combine/PagePicker';
+import { CombinePreviewSession } from '~/features/pdf-combine/preview-session';
+import { SheetPreview } from '~/features/pdf-combine/SheetPreview';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
-import { renderPageThumbs } from '~/lib/thumbs';
+import { MAX_INTERACTIVE_PAGES, MAX_PAGE_THUMBNAILS } from '~/lib/limits';
+import { createOperation, isAbortError, type OperationHandle } from '~/lib/operation';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -68,6 +66,20 @@ export default function CombinePage() {
   // Lambda: `pickFile` is defined below; the hook invokes it in onMount.
   const chain = useChainedPdf((f) => pickFile([f]));
 
+  /** One open PDF document shared by thumbnails + live previews (P1.1). */
+  let session: CombinePreviewSession | null = null;
+  /** Cancellation for the in-flight final combine (P1.6). */
+  let opHandle: OperationHandle | null = null;
+  onCleanup(() => {
+    opHandle?.cancel();
+    void session?.dispose();
+  });
+
+  /** Debounce: rapid toggling must not queue a render per change (P1.1). */
+  const PREVIEW_DEBOUNCE_MS = 160;
+  let previewTimer: number | null = null;
+  let previewGen = 0;
+
   const sheetDims = (): [number, number] => {
     const [w, h] = SHEET_SIZES[sheetSize()];
     return orientation() === 'landscape' ? [h, w] : [w, h];
@@ -83,48 +95,42 @@ export default function CombinePage() {
   });
 
   /** Live preview of the combined sheets (auto-updates on every change to
-   *  the selection or layout options). */
+   *  the selection or layout options). Debounced; superseded renders are
+   *  cancelled inside the session. */
   const [sheetPrev, setSheetPrev] = createSignal<{ urls: string[]; total: number }>({
     urls: [],
     total: 0,
   });
-  let previewGen = 0;
 
-  const refreshPreview = () => {
-    const f = file();
-    const pages = selected();
-    if (!f || pages.length === 0 || pageCount() === 0 || phase() !== 'ready') {
+  createEffect(() => {
+    // Reading these inside the effect makes it re-run when any changes.
+    const s = session;
+    const pages = [...selected()];
+    const g = grid();
+    const [sheetW, sheetH] = sheetDims();
+    const ready = phase() === 'ready' && pageCount() > 0;
+
+    if (previewTimer !== null) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    if (!s || pages.length === 0 || !ready) {
       setSheetPrev({ urls: [], total: 0 });
       return;
     }
     const gen = ++previewGen;
-    const [sheetW, sheetH] = sheetDims();
-    void (async () => {
-      try {
-        const data = await readFileBytes(f.file);
-        const r = await previewSheets(data, pages, {
-          cols: grid().cols,
-          rows: grid().rows,
-          sheetW,
-          sheetH,
-        });
-        if (gen === previewGen) setSheetPrev(r);
-      } catch {
-        if (gen === previewGen) setSheetPrev({ urls: [], total: 0 });
-      }
-    })();
-  };
-
-  createEffect(() => {
-    // Reading these inside the effect makes it re-run when any changes.
-    file();
-    selected();
-    gridId();
-    sheetSize();
-    orientation();
-    phase();
-    pageCount();
-    refreshPreview();
+    previewTimer = window.setTimeout(() => {
+      previewTimer = null;
+      void (async () => {
+        try {
+          const r = await s.previewSheets(pages, { cols: g.cols, rows: g.rows, sheetW, sheetH });
+          if (gen === previewGen) setSheetPrev(r);
+        } catch (err) {
+          // Superseded/cancelled previews are expected; real failures hide.
+          if (!isAbortError(err) && gen === previewGen) setSheetPrev({ urls: [], total: 0 });
+        }
+      })();
+    }, PREVIEW_DEBOUNCE_MS);
   });
 
   const pickFile = async (files: File[]) => {
@@ -139,12 +145,23 @@ export default function CombinePage() {
     expandAds();
     setPhase('processing');
     setProgress({ done: 0, total: 1, label: 'Opening PDF…' });
+    const old = session;
+    const fresh = new CombinePreviewSession();
     try {
-      const bytes = await readFileBytes(candidate);
-      const r = await renderPageThumbs(new Uint8Array(bytes), 110, 200);
-      if (r.error) throw new Error(r.error);
-      const count = r.count;
-      setThumbs(r.thumbs);
+      const raw = new Uint8Array(await readFileBytes(candidate));
+      const count = await fresh.open(raw.slice()); // pdfjs detaches its input
+      if (count === 0) throw new Error('This PDF has no pages');
+      if (count > MAX_INTERACTIVE_PAGES) {
+        throw new Error(
+          `This PDF has ${count} pages; the page picker supports ${MAX_INTERACTIVE_PAGES} at a time.`,
+        );
+      }
+      session = fresh;
+      await old?.dispose();
+      const thumbs = await fresh.thumbs(110, MAX_PAGE_THUMBNAILS);
+      // File may have been cleared/replaced while opening.
+      if (session !== fresh) return;
+      setThumbs(thumbs);
       setPageCount(count);
       setSelected(Array.from({ length: count }, (_, i) => i + 1)); // select all by default
       setFile({
@@ -156,12 +173,18 @@ export default function CombinePage() {
       });
       setPhase('ready');
     } catch (err) {
+      session = null;
+      await fresh.dispose();
+      await old?.dispose();
       setPhase('empty');
       setError(err instanceof Error ? err.message : 'Could not open this PDF.');
     }
   };
 
   const clear = () => {
+    const s = session;
+    session = null;
+    void s?.dispose();
     setFile(null);
     setPageCount(0);
     setThumbs([]);
@@ -187,7 +210,13 @@ export default function CombinePage() {
     setError('');
     setResult(null);
     setProgress({ done: 0, total: 1, label: 'Starting…' });
+    const onProgress: ProgressFn = (done, total, label) =>
+      setProgress({ done, total, label: label ?? '' });
+    const handle = createOperation(onProgress);
+    opHandle = handle;
     try {
+      // The final output re-reads the File — no extra raw-byte copy is kept
+      // in memory just to avoid this (handoff P1.1 note 7).
       const data = await readFileBytes(f.file);
       const [sheetW, sheetH] = sheetDims();
       const options: CombineOptions = {
@@ -196,17 +225,23 @@ export default function CombinePage() {
         sheetW,
         sheetH,
         dpi: dpi(),
+        op: handle.op,
       };
-      const onProgress: ProgressFn = (done, total, label) =>
-        setProgress({ done, total, label: label ?? '' });
       const bytes = await combinePages(data, pages, options, onProgress);
       const sheets = sheetCount(pages.length, grid().cols * grid().rows);
       const resultName = `${f.name.replace(/\.pdf$/i, '') || 'document'}-combined.pdf`;
       setResult({ bytes, name: resultName, sheets });
       setPhase('done');
     } catch (err) {
+      if (isAbortError(err)) {
+        setPhase('ready');
+        setProgress({ done: 0, total: 1, label: '' });
+        return;
+      }
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      opHandle = null;
     }
   };
 
@@ -310,117 +345,37 @@ export default function CombinePage() {
         >
           <div class="panel">
             <div class="panel-body">
-              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
-              <Show when={!file() || phase() === 'empty'}>
-                <DropZone
-                  accept="application/pdf,.pdf"
-                  title="Drop a PDF here"
-                  subtitle="pick pages, choose a layout, combine"
-                  busy={phase() === 'processing'}
-                  onFiles={pickFile}
-                />
-              </Show>
-              <Show when={file()}>
-                <div class="file-row" style="margin-bottom: 0.5rem">
-                  <span class="file-name" title={file()!.name}>
-                    {file()!.name}
-                  </span>
-                  <span class="file-size">
-                    {humanSize(file()!.size)}
-                    {pageCount() > 0 ? ` · ${pageCount()} pages` : ''}
-                  </span>
-                  <span class="file-actions">
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-icon btn-ghost"
-                      aria-label="Remove PDF"
-                      onClick={clear}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </span>
-                </div>
-              </Show>
+              <SinglePdfInput
+                file={file}
+                pageCount={pageCount}
+                showDrop={() => !file() || phase() === 'empty'}
+                dropTitle="Drop a PDF here"
+                dropSubtitle="pick pages, choose a layout, combine"
+                busy={phase() === 'processing'}
+                note={chain.note}
+                dismissNote={chain.dismissNote}
+                onFiles={pickFile}
+                onClear={clear}
+              />
 
-              <Show when={file() && pageCount() > 0}>
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost"
-                    onClick={() =>
-                      setSelected(Array.from({ length: pageCount() }, (_, i) => i + 1))
-                    }
-                  >
-                    <CheckIcon /> All
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost"
-                    onClick={() => setSelected([])}
-                  >
-                    None
-                  </button>
-                  <span style="font-size: 0.85rem; color: var(--ink-muted); margin-left: auto">
-                    {selectedCount()} selected
-                  </span>
-                </div>
-                <fieldset class="page-grid" aria-label="Select pages to combine">
-                  <For each={Array.from({ length: pageCount() }, (_, i) => i + 1)}>
-                    {(n) => (
-                      <button
-                        type="button"
-                        class="page-tile"
-                        aria-pressed={selected().includes(n)}
-                        onClick={() => togglePage(n)}
-                        disabled={phase() !== 'ready'}
-                      >
-                        <Show when={thumbs()[n - 1]}>
-                          <img
-                            class="page-tile-img"
-                            src={thumbs()[n - 1]!}
-                            alt=""
-                            loading="lazy"
-                            draggable={false}
-                          />
-                        </Show>
-                        <span class="page-num">{n}</span>
-                      </button>
-                    )}
-                  </For>
-                </fieldset>
-              </Show>
+              <PagePicker
+                visible={() => Boolean(file() && pageCount() > 0)}
+                pageCount={pageCount}
+                thumbs={thumbs}
+                selected={selected}
+                selectedCount={selectedCount}
+                onToggle={togglePage}
+                onSelectAll={() =>
+                  setSelected(Array.from({ length: pageCount() }, (_, i) => i + 1))
+                }
+                onSelectNone={() => setSelected([])}
+                disabled={() => phase() !== 'ready'}
+              />
 
-              <Show when={phase() === 'ready' && selectedCount() > 0 && sheetPrev().total > 0}>
-                <div class="sheet-preview">
-                  <div class="sheet-preview-head">
-                    <span class="sheet-preview-title">Output preview</span>
-                    <span class="sheet-preview-count">
-                      {sheetPrev().total} {sheetPrev().total === 1 ? 'sheet' : 'sheets'}
-                      {sheetPrev().total > sheetPrev().urls.length
-                        ? ` · showing first ${sheetPrev().urls.length}`
-                        : ''}
-                    </span>
-                  </div>
-                  <div class="sheet-prev-row">
-                    <For each={sheetPrev().urls}>
-                      {(u) => (
-                        <img
-                          class="sheet-prev-img"
-                          src={u}
-                          alt="Combined sheet preview"
-                          loading="lazy"
-                          draggable={false}
-                        />
-                      )}
-                    </For>
-                    <Show when={sheetPrev().total > sheetPrev().urls.length}>
-                      <span class="sheet-prev-more">
-                        +{sheetPrev().total - sheetPrev().urls.length} more
-                      </span>
-                    </Show>
-                  </div>
-                </div>
-              </Show>
+              <SheetPreview
+                visible={() => phase() === 'ready' && selectedCount() > 0 && sheetPrev().total > 0}
+                preview={sheetPrev}
+              />
               <Show when={error()}>
                 <div class="error-card" role="alert">
                   <AlertIcon />

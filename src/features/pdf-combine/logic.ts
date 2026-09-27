@@ -15,6 +15,7 @@
  * and unit-tested in Node; the compositing itself needs DOM canvases.
  */
 import { canvasToJpeg } from '~/lib/imaging';
+import type { OperationContext } from '~/lib/operation';
 import { disposePdf, pdfDocument } from '~/lib/pdfjs';
 import { pdflib } from '~/lib/pdflib';
 import { type ProgressFn, yieldToBrowser } from '~/lib/types';
@@ -43,6 +44,8 @@ export interface CombineOptions {
   sheetH: number;
   /** Target sheet resolution in DPI (72 = native). */
   dpi: number;
+  /** Cancellation context — checkpoint between sheets (P1.6). */
+  op?: OperationContext;
 }
 
 /** Number of sheets m that n pages fill: ceil(n / cells). */
@@ -99,6 +102,7 @@ async function drawSheet(
   ppi: number,
   canvasW: number,
   canvasH: number,
+  onTask?: (task: import('pdfjs-dist').RenderTask) => void,
 ): Promise<HTMLCanvasElement> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(canvasW));
@@ -125,7 +129,13 @@ async function drawSheet(
     tile.height = Math.max(1, Math.ceil(viewport.height));
     const tctx = tile.getContext('2d', { desynchronized: true });
     if (!tctx) throw new Error('Canvas 2D context unavailable');
-    await page.render({ canvas: tile, viewport }).promise;
+    try {
+      const renderTask = page.render({ canvas: tile, viewport });
+      onTask?.(renderTask);
+      await renderTask.promise;
+    } finally {
+      page.cleanup();
+    }
 
     const col = k % cols;
     const row = Math.floor(k / cols);
@@ -143,16 +153,18 @@ async function drawSheet(
 }
 
 /**
- * Live preview: render the first `maxSheets` output sheets at low
- * resolution (same layout math as the real output) and return JPEG data
- * URLs. Browser-only; cheap enough to run on every option change.
+ * Live preview of an *already-open* document: render the first `maxSheets`
+ * output sheets at low resolution and return JPEG data URLs.
+ * `onTask` receives each in-flight render task so the caller can cancel a
+ * superseded preview (pdfjs 6 RenderTask.cancel()).
  */
-export async function previewSheets(
-  data: ArrayBuffer,
+export async function previewSheetsFrom(
+  pdf: Awaited<ReturnType<typeof pdfDocument>>,
   selected: number[],
   options: Omit<CombineOptions, 'dpi'>,
   maxSheets = 3,
   targetWidth = 260,
+  onTask?: (task: import('pdfjs-dist').RenderTask) => void,
 ): Promise<{ urls: string[]; total: number }> {
   if (selected.length === 0) return { urls: [], total: 0 };
   const cells = options.cols * options.rows;
@@ -161,30 +173,47 @@ export async function previewSheets(
   const ppi = targetWidth / (options.sheetW / 72); // preview scale
   const canvasH = (options.sheetH / options.sheetW) * targetWidth;
 
-  const pdf = await pdfDocument(new Uint8Array(data));
   const urls: string[] = [];
+  const n = Math.min(maxSheets, total);
+  for (let s = 0; s < n; s += 1) {
+    const canvas = await drawSheet(
+      pdf,
+      selected,
+      s,
+      counts[s]!,
+      options.cols,
+      options.rows,
+      ppi,
+      targetWidth,
+      canvasH,
+      onTask,
+    );
+    urls.push(canvas.toDataURL('image/jpeg', 0.7));
+    canvas.width = 0;
+    canvas.height = 0;
+    await yieldToBrowser();
+  }
+  return { urls, total };
+}
+
+/**
+ * Live preview: open a document, render the first sheets at low resolution
+ * (same layout math as the real output) and release the document. One-shot
+ * callers only — interactive routes should keep a preview session instead
+ * (handoff P1.1).
+ */
+export async function previewSheets(
+  data: ArrayBuffer,
+  selected: number[],
+  options: Omit<CombineOptions, 'dpi'>,
+  maxSheets = 3,
+  targetWidth = 260,
+): Promise<{ urls: string[]; total: number }> {
+  const pdf = await pdfDocument(new Uint8Array(data));
   try {
-    const n = Math.min(maxSheets, total);
-    for (let s = 0; s < n; s += 1) {
-      const canvas = await drawSheet(
-        pdf,
-        selected,
-        s,
-        counts[s]!,
-        options.cols,
-        options.rows,
-        ppi,
-        targetWidth,
-        canvasH,
-      );
-      urls.push(canvas.toDataURL('image/jpeg', 0.7));
-      canvas.width = 0;
-      canvas.height = 0;
-      await yieldToBrowser();
-    }
-    return { urls, total };
+    return await previewSheetsFrom(pdf, selected, options, maxSheets, targetWidth);
   } finally {
-    disposePdf(pdf);
+    await disposePdf(pdf);
   }
 }
 
@@ -220,7 +249,8 @@ export async function combinePages(
 
     for (let s = 0; s < sheets; s += 1) {
       onProgress(s, sheets, `Sheet ${s + 1} of ${sheets}…`);
-      await yieldToBrowser();
+      if (options.op) await options.op.checkpoint();
+      else await yieldToBrowser();
       const n = counts[s]!;
 
       const canvas = await drawSheet(

@@ -18,6 +18,29 @@ import { yieldToBrowser } from '~/lib/types';
 
 export type FieldType = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'date' | 'button';
 
+/** Signature creation tabs in the Sign chooser. */
+export type SigTab = 'draw' | 'type' | 'upload';
+
+/** A prepared signature ready to be stamped onto pages. */
+export interface Signature {
+  png: Uint8Array;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+/** A placed signature stamp (display coordinates, 1-based page). */
+export interface StampView {
+  id: string;
+  page: number;
+  x: number; // display px (top-left)
+  y: number;
+  w: number;
+  h: number;
+  png: Uint8Array;
+  dataUrl: string;
+}
+
 export interface FieldInfo {
   /** Field name (unique within the document — used as the fill key). */
   name: string;

@@ -10,6 +10,7 @@
  * pdf-lib is imported lazily so the merge page's chunk stays lean.
  */
 import type { PDFDocument as PdfDoc } from 'pdf-lib';
+import type { OperationContext } from '~/lib/operation';
 import { pdflib } from '~/lib/pdflib';
 import { type ProgressFn, yieldToBrowser } from '~/lib/types';
 import { addImagePage, type PageSize, prepareImage } from '../image-to-pdf/logic';
@@ -23,6 +24,8 @@ export interface MergeOptions {
   pageSize: PageSize;
   /** Margins in points, applied to image pages. */
   marginPt: number;
+  /** Cancellation context — checkpoint between files/pages (P1.6). */
+  op?: OperationContext;
 }
 
 /** Merge the given inputs (in order) into one PDF. */
@@ -102,27 +105,32 @@ export async function mergePages(
   doc.setTitle('Merged document');
   doc.setProducer('PDFBoogie (in-browser, no upload)');
 
-  let curBytes: Uint8Array | null = null;
-  let curSrc: PdfDoc | null = null;
+  // Source documents are loaded once per distinct buffer identity. The
+  // route keeps exactly one Uint8Array per file, so the object itself is a
+  // safe key — interleaved sequences (A1, B1, A2, B2) re-use both docs
+  // instead of re-parsing on every switch.
+  const srcCache = new Map<Uint8Array, PdfDoc>();
 
   for (let i = 0; i < refs.length; i += 1) {
     const ref = refs[i]!;
     onProgress(i, refs.length, `Page ${i + 1} of ${refs.length}`);
-    await yieldToBrowser();
+    if (options.op) await options.op.checkpoint();
+    else await yieldToBrowser();
 
     if (ref.kind === 'image') {
       const prep = await prepareImage(ref.file);
       await addImagePage(doc, prep, options);
     } else {
-      if (curSrc === null || curBytes !== ref.bytes) {
-        curSrc = await loadSource(ref.name, ref.bytes);
-        curBytes = ref.bytes;
+      let src = srcCache.get(ref.bytes);
+      if (!src) {
+        src = await loadSource(ref.name, ref.bytes);
+        srcCache.set(ref.bytes, src);
       }
-      const n = curSrc.getPageCount();
+      const n = src.getPageCount();
       if (!Number.isInteger(ref.page) || ref.page < 1 || ref.page > n) {
         throw new Error(`Page ${ref.page} of “${ref.name}” doesn't exist.`);
       }
-      const [page] = await doc.copyPages(curSrc, [ref.page - 1]);
+      const [page] = await doc.copyPages(src, [ref.page - 1]);
       doc.addPage(page);
     }
   }

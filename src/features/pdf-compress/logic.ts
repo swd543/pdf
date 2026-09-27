@@ -12,7 +12,8 @@
  *              the output is image-based (text no longer selectable).
  */
 
-import { type DpiOption, type ExportedImage, pdfToImages } from '~/features/pdf-to-image/logic';
+import { type DpiOption, forEachPdfImage } from '~/features/pdf-to-image/logic';
+import type { OperationContext } from '~/lib/operation';
 import { pdflib } from '~/lib/pdflib';
 import { CapabilityError, type ProgressFn, yieldToBrowser } from '~/lib/types';
 import { wasmLosslessCompress } from '~/lib/wasm';
@@ -25,6 +26,8 @@ export interface CompressOptions {
   quality?: number;
   /** Strong mode: render resolution in DPI (default 150). */
   dpi?: DpiOption;
+  /** Cancellation context (used by the strong/render path). */
+  op?: OperationContext;
 }
 
 export interface CompressOutcome {
@@ -146,30 +149,30 @@ async function strong(
   const quality = options.quality ?? DEFAULT_QUALITY;
   const dpi = options.dpi ?? DEFAULT_DPI;
 
-  // 1. Render every page to JPEG (progress: rendering).
-  const pages: ExportedImage[] = await pdfToImages(
-    data,
-    { format: 'jpeg', quality, dpi },
-    (done, total, label) => onProgress(done * 0.8, total * 0.8 + 1, label ?? 'Compressing'),
-  );
-
-  // 2. Rebuild the PDF from the pages, preserving original page sizes.
+  // Render and embed one page at a time. The image is materialized into
+  // the pdf-lib document before the next page renders, so peak memory is
+  // one page instead of "source PDF + every rendered page" (handoff P1.5).
   const { PDFDocument } = await pdflib();
   const doc = await PDFDocument.create();
   doc.setTitle('Compressed document');
   doc.setProducer('PDFBoogie (in-browser, no upload)');
+  let pages = 0;
 
-  onProgress(0.85, 1, 'Assembling PDF');
-  await yieldToBrowser();
-
-  for (const p of pages) {
-    const image = await doc.embedJpg(p.bytes);
-    const page = doc.addPage([p.pageWidthPt, p.pageHeightPt]);
-    page.drawImage(image, { x: 0, y: 0, width: p.pageWidthPt, height: p.pageHeightPt });
-    await yieldToBrowser();
-  }
+  await forEachPdfImage(
+    data,
+    { format: 'jpeg', quality, dpi, op: options.op },
+    async (p) => {
+      const image = await doc.embedJpg(p.bytes);
+      await image.embed(); // materialize so the page bytes can be released
+      const page = doc.addPage([p.pageWidthPt, p.pageHeightPt]);
+      page.drawImage(image, { x: 0, y: 0, width: p.pageWidthPt, height: p.pageHeightPt });
+      pages += 1;
+    },
+    (done, total, label) => onProgress(done * 0.8, total * 0.8 + 1, label ?? 'Compressing'),
+  );
 
   onProgress(0.95, 1, 'Finalizing');
+  await yieldToBrowser();
   const out = await doc.save({ useObjectStreams: true });
-  return { bytes: new Uint8Array(out), via: 'strong', pages: pages.length };
+  return { bytes: new Uint8Array(out), via: 'strong', pages };
 }

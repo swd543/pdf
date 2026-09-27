@@ -3,10 +3,17 @@
  *
  * Runs in the browser only (needs DOM canvases); the pure helpers
  * (range math, file names) are unit-tested in Node.
+ *
+ * Memory model (handoff P0.5/P1.5): `forEachPdfImage` is the streaming
+ * primitive — it hands each encoded page to a consumer immediately so
+ * callers (ZIP export, strong compression) never retain every page at
+ * once. `pdfToImages` is the convenience collector on top.
  */
+import { boundedCanvasSize, releaseCanvas } from '~/lib/canvas';
 import { canvasToJpeg, canvasToPng, canvasToWebP } from '~/lib/imaging';
+import type { OperationContext } from '~/lib/operation';
 import { disposePdf, pdfDocument } from '~/lib/pdfjs';
-import { type ProgressFn, yieldToBrowser } from '~/lib/types';
+import type { ProgressFn } from '~/lib/types';
 
 export type ExportFormat = 'png' | 'jpeg' | 'webp';
 export type DpiOption = 96 | 150 | 220 | 300;
@@ -21,6 +28,8 @@ export interface PdfToImageOptions {
   from?: number;
   /** 1-based last page to export (inclusive). */
   to?: number;
+  /** Cancellation context — render tasks abort with it (P1.6). */
+  op?: OperationContext;
 }
 
 export interface ExportedImage {
@@ -35,6 +44,8 @@ export interface ExportedImage {
   pageWidthPt: number;
   pageHeightPt: number;
 }
+
+export type ExportedImageConsumer = (image: ExportedImage) => void | Promise<void>;
 
 const MIME: Record<ExportFormat, string> = {
   png: 'image/png',
@@ -60,26 +71,29 @@ export function pageFileName(base: string, page: number, ext: string, multiPage:
 }
 
 /**
- * Render a page range to image bytes, reporting progress per page.
+ * Render a page range and hand each encoded image to `onImage` as soon as
+ * it is ready. Returns the number of pages processed. Aborts with
+ * `AbortError` when the operation's signal fires.
  */
-export async function pdfToImages(
+export async function forEachPdfImage(
   data: ArrayBuffer,
   options: PdfToImageOptions,
+  onImage: ExportedImageConsumer,
   onProgress: ProgressFn,
-): Promise<ExportedImage[]> {
+): Promise<number> {
   if (!data || data.byteLength === 0) throw new Error('Empty file');
   const pdf = await pdfDocument(new Uint8Array(data));
 
   try {
     if (pdf.numPages === 0) throw new Error('This PDF has no pages');
     const { first, last } = resolveRange(options.from, options.to, pdf.numPages);
-
+    const total = last - first + 1;
     const scale = options.dpi / 72;
-    const out: ExportedImage[] = [];
+
     for (let page = first; page <= last; page += 1) {
-      onProgress(page - first, last - first + 1, `Rendering page ${page} of ${last - first + 1}`);
-      const view = await renderOnePage(pdf, page, scale, options.format, options.quality);
-      out.push({
+      onProgress(page - first, total, `Rendering page ${page} of ${total}`);
+      const view = await renderOnePage(pdf, page, scale, options);
+      await onImage({
         page,
         bytes: view.bytes,
         mime: view.mime,
@@ -89,13 +103,32 @@ export async function pdfToImages(
         pageWidthPt: view.pageWidthPt,
         pageHeightPt: view.pageHeightPt,
       });
-      await yieldToBrowser();
+      // Event-loop turn + cancellation point between pages.
+      if (options.op) await options.op.checkpoint();
     }
-    return out;
+    return total;
   } finally {
     // Release the document (frees worker memory for the next operation).
-    disposePdf(pdf);
+    await disposePdf(pdf);
   }
+}
+
+/** Render a page range to an in-memory image array (small exports). */
+export async function pdfToImages(
+  data: ArrayBuffer,
+  options: PdfToImageOptions,
+  onProgress: ProgressFn,
+): Promise<ExportedImage[]> {
+  const out: ExportedImage[] = [];
+  await forEachPdfImage(
+    data,
+    options,
+    (image) => {
+      out.push(image);
+    },
+    onProgress,
+  );
+  return out;
 }
 
 interface RenderedPage {
@@ -112,12 +145,18 @@ async function renderOnePage(
   pdf: import('pdfjs-dist').PDFDocumentProxy,
   pageNumber: number,
   scale: number,
-  format: ExportFormat,
-  quality: number,
+  options: PdfToImageOptions,
 ): Promise<RenderedPage> {
   const page = await pdf.getPage(pageNumber);
-  const viewport = page.getViewport({ scale });
   const base = page.getViewport({ scale: 1 });
+
+  let viewport = page.getViewport({ scale });
+  const bounded = boundedCanvasSize(viewport.width, viewport.height);
+  if (bounded.reduced) {
+    // Lower the render scale (aspect preserved) instead of stretching a
+    // canvas that would exceed GPU limits.
+    viewport = page.getViewport({ scale: (scale * bounded.width) / viewport.width });
+  }
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.ceil(viewport.width));
@@ -126,22 +165,37 @@ async function renderOnePage(
   if (!ctx) throw new Error('Canvas 2D context unavailable');
 
   // Opaque background for lossy formats (JPEG/WebP have no alpha).
-  if (format !== 'png') {
+  if (options.format !== 'png') {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
-  await page.render({ canvas, viewport }).promise;
+  // pdfjs 6 cancels through RenderTask.cancel() — bridge from the op signal.
+  const task = page.render({ canvas, viewport });
+  const cancelTask = () => task.cancel();
+  if (options.op) {
+    if (options.op.signal.aborted) task.cancel();
+    else options.op.signal.addEventListener('abort', cancelTask, { once: true });
+  }
+  try {
+    await task.promise;
+  } catch (err) {
+    if (options.op?.signal.aborted) throw new DOMException('Operation cancelled', 'AbortError');
+    throw err;
+  } finally {
+    if (options.op) options.op.signal.removeEventListener('abort', cancelTask);
+  }
 
   let bytes: Uint8Array;
-  if (format === 'png') bytes = await canvasToPng(canvas);
-  else if (format === 'jpeg') bytes = await canvasToJpeg(canvas, quality);
-  else bytes = await canvasToWebP(canvas, quality);
-  const mime = MIME[format];
+  if (options.format === 'png') bytes = await canvasToPng(canvas);
+  else if (options.format === 'jpeg') bytes = await canvasToJpeg(canvas, options.quality);
+  else bytes = await canvasToWebP(canvas, options.quality);
+  const mime = MIME[options.format];
 
-  const { width, height } = { width: canvas.width, height: canvas.height };
-  canvas.width = 0;
-  canvas.height = 0; // release the backing store immediately
+  const width = canvas.width;
+  const height = canvas.height;
+  releaseCanvas(canvas); // free the backing store before the next page
+  page.cleanup();
 
   return {
     bytes,

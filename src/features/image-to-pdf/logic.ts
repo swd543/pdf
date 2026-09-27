@@ -24,6 +24,7 @@ import {
   pngDimensions,
 } from '~/lib/image-meta';
 import { canvasToPng, downscaleBitmap, fileToBitmap, renderWhiteJpeg } from '~/lib/imaging';
+import type { OperationContext } from '~/lib/operation';
 import { pdflib } from '~/lib/pdflib';
 import type { ProgressFn } from '~/lib/types';
 import { yieldToBrowser } from '~/lib/types';
@@ -35,6 +36,8 @@ export interface ImageToPdfOptions {
   pageSize: PageSize;
   /** Page margin in points (0 = none). */
   marginPt: number;
+  /** Cancellation context — checkpoint between images (P1.6). */
+  op?: OperationContext;
 }
 
 /** Standard page sizes in points. */
@@ -88,9 +91,31 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   // Generic path: decode (EXIF applied by the browser), downscale if huge,
   // re-encode to JPEG on a white background.
   const bitmap = await fileToBitmap(file);
-  const scaled = await downscaleBitmap(bitmap, MAX_REENCODE_SIDE);
-  const bytes = await renderWhiteJpeg(scaled, JPEG_QUALITY);
-  return { bytes, kind: 'jpeg', width: scaled.width, height: scaled.height };
+  let scaled: ImageBitmap | null = null;
+  try {
+    scaled = await downscaleBitmap(bitmap, MAX_REENCODE_SIDE);
+    const bytes = await renderWhiteJpeg(scaled, JPEG_QUALITY);
+    return { bytes, kind: 'jpeg', width: scaled.width, height: scaled.height };
+  } finally {
+    bitmap.close();
+    if (scaled && scaled !== bitmap) scaled.close(); // downscale made a new one
+  }
+}
+
+/**
+ * Output page geometry for an image, in PDF points.
+ * Shared by the real PDF writer (`addImagePage`) and Merge's CSS preview,
+ * so the preview cannot drift from what is actually written.
+ */
+export function imagePageDimensions(
+  imageWidth: number,
+  imageHeight: number,
+  pageSize: PageSize,
+): [number, number] {
+  if (pageSize === 'fit') {
+    return [clamp(imageWidth * FIT_SCALE), clamp(imageHeight * FIT_SCALE)];
+  }
+  return PAGE_SIZES[pageSize];
 }
 
 /**
@@ -104,18 +129,7 @@ export async function addImagePage(
   options: ImageToPdfOptions,
 ): Promise<void> {
   const margin = options.marginPt;
-
-  // Page geometry
-  let pageW: number;
-  let pageH: number;
-  if (options.pageSize === 'fit') {
-    pageW = clamp(prep.width * FIT_SCALE);
-    pageH = clamp(prep.height * FIT_SCALE);
-  } else {
-    const [w, h] = PAGE_SIZES[options.pageSize];
-    pageW = w;
-    pageH = h;
-  }
+  const [pageW, pageH] = imagePageDimensions(prep.width, prep.height, options.pageSize);
 
   // Letterbox the image inside the page, centered.
   const boxW = pageW - margin * 2;
@@ -151,13 +165,15 @@ export async function imagesToPdf(
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i]!;
     onProgress(i, files.length, `Preparing ${file.name}`);
-    await yieldToBrowser();
+    if (options.op) await options.op.checkpoint();
+    else await yieldToBrowser();
 
     const prep = await prepareImage(file);
     onProgress(i + 0.5, files.length, `Embedding ${file.name}`);
     await addImagePage(doc, prep, options);
 
-    await yieldToBrowser();
+    if (options.op) await options.op.checkpoint();
+    else await yieldToBrowser();
   }
 
   onProgress(files.length, files.length, 'Assembling PDF');

@@ -11,57 +11,38 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
-import { ChainNote } from '~/components/ChainBar';
-import { AlertIcon, DownloadIcon, TrashIcon } from '~/components/Icons';
-import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { AlertIcon } from '~/components/Icons';
+import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import type { SignaturePadApi } from '~/components/SignaturePad';
-import { SignaturePad } from '~/components/SignaturePad';
+import { SinglePdfInput } from '~/components/SinglePdfInput';
+import { FormPanel } from '~/features/pdf-sign/FormPanel';
 import {
-  type FieldInfo,
   type FieldType,
   type FieldUpdate,
   type FormScan,
   fillForm,
   placeSignatures,
+  type Signature,
+  type SigTab,
+  type StampView,
   scanForm,
 } from '~/features/pdf-sign/logic';
+import { PdfStage } from '~/features/pdf-sign/PdfStage';
+import { type PageMeta, SignPageRenderer } from '~/features/pdf-sign/page-renderer';
+import { SignatureChooser } from '~/features/pdf-sign/SignatureChooser';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
-import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
+import { cleanFileName, readFileBytes } from '~/lib/files';
 import { canvasToPng } from '~/lib/imaging';
-import { disposePdf, pdfDocument } from '~/lib/pdfjs';
-import { type FileItem, isPdfFile, yieldToBrowser } from '~/lib/types';
+import { createObjectUrlRegistry } from '~/lib/object-urls';
+import { type FileItem, isPdfFile } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
 import { jsonLdFor, routeMeta } from '~/site/seo';
 
 type Phase = 'empty' | 'loading' | 'ready' | 'processing';
-type SigTab = 'draw' | 'type' | 'upload';
-
-interface PageMeta {
-  widthPt: number;
-  heightPt: number;
-}
-
-interface Signature {
-  png: Uint8Array;
-  dataUrl: string;
-  width: number;
-  height: number;
-}
-
-interface StampView {
-  id: string;
-  page: number; // 1-based
-  x: number; // display px (top-left)
-  y: number;
-  w: number;
-  h: number;
-  png: Uint8Array;
-  dataUrl: string;
-}
 
 let stampCounter = 0;
 const nextStampId = () => `stamp-${++stampCounter}`;
@@ -94,80 +75,83 @@ export default function PdfSignPage() {
   const [stamps, setStamps] = createSignal<StampView[]>([]);
   const [selected, setSelected] = createSignal<string | null>(null);
 
-  // DOM refs for the rendered page canvases (keyed by 1-based page number)
+  // DOM refs for the page canvases (keyed by 1-based page number)
   const pageCanvases = new Map<number, HTMLCanvasElement>();
-  let doc: import('pdfjs-dist').PDFDocumentProxy | null = null;
+  /** Stage elements for the IntersectionObserver (lazy render window). */
+  const stageEls = new Map<number, HTMLDivElement>();
 
-  const selectedStamp = () => stamps().find((s) => s.id === selected()) ?? null;
+  /* ---------------- document loading ---------------- */
+  // Lazy bounded rendering (handoff P0.1): the renderer owns the PDF.js
+  // document; the observer decides which pages keep a live canvas.
+  let renderer: SignPageRenderer | null = null;
+  const visibleStages = new Set<number>();
+  const stageObserver =
+    typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              const p = Number((entry.target as HTMLElement).dataset.page);
+              if (!Number.isFinite(p) || p < 1) continue;
+              if (entry.isIntersecting) visibleStages.add(p);
+              else visibleStages.delete(p);
+            }
+            renderer?.syncWindow(desiredWindow());
+          },
+          { rootMargin: '256px 0px' },
+        )
+      : null;
+
+  onCleanup(() => {
+    stageObserver?.disconnect();
+    void renderer?.dispose();
+  });
+
+  /** Pages to keep live: a page of each visible stage plus its neighbours,
+   *  most-visible first (the renderer keeps only the first few). */
+  const desiredWindow = (): number[] => {
+    if (visibleStages.size === 0) return [];
+    const top = Math.min(...visibleStages);
+    const want = new Set<number>();
+    for (const p of visibleStages) for (const q of [p - 1, p, p + 1]) want.add(q);
+    return [...want].sort((a, b) => Math.abs(a - top) - Math.abs(b - top));
+  };
+
+  const teardownRenderer = async () => {
+    const r = renderer;
+    renderer = null;
+    visibleStages.clear();
+    if (r) await r.dispose();
+  };
+
+  const openDocument = async (bytes: ArrayBuffer | Uint8Array) => {
+    await teardownRenderer();
+    setProgress({ done: 0, total: 1, label: 'Opening PDF…' });
+    // pdfjs detaches the buffer it is given — hand it a real copy so
+    // `bytes` stays usable for the form scan and the download.
+    const copy = new Uint8Array(bytes instanceof ArrayBuffer ? bytes.slice(0) : bytes.slice());
+    const r = new SignPageRenderer();
+    const metas = await r.open(copy, 1);
+    const n = metas.length;
+    if (n === 0) {
+      await r.dispose();
+      throw new Error('This PDF has no pages');
+    }
+    // Adaptive display width so big documents stay light (same formula as
+    // the old eager renderer).
+    const target = n <= 10 ? 560 : n <= 50 ? 420 : 300;
+    const firstWidth = metas[0]?.widthPt ?? 595;
+    const scale = Math.min(1.6, target / firstWidth);
+    renderer = r;
+    r.setScale(scale); // safe: nothing has rendered yet
+    setPageScale(scale);
+    setPageMeta(metas);
+    setPageCount(n);
+  };
 
   const fieldType = (name: string): FieldType | undefined =>
     form()?.fields.find((f) => f.name === name)?.type;
 
-  /* ---------------- document loading ---------------- */
-
-  const renderAllPages = async () => {
-    const n = pageCount();
-    if (n === 0 || !doc) return;
-    for (let p = 1; p <= n; p += 1) {
-      const canvas = pageCanvases.get(p);
-      if (!canvas) continue;
-      const page = await doc.getPage(p);
-      const viewport = page.getViewport({ scale: pageScale() });
-      canvas.width = Math.max(1, Math.ceil(viewport.width));
-      canvas.height = Math.max(1, Math.ceil(viewport.height));
-      if (!canvas.getContext('2d')) continue;
-      await page.render({ canvas, viewport }).promise;
-      await yieldToBrowser();
-    }
-  };
-
-  const openDocument = async (bytes: ArrayBuffer | Uint8Array, announce: boolean) => {
-    if (doc) {
-      await disposePdf(doc);
-      doc = null;
-    }
-    // pdfjs takes ownership of the buffer it is given (it transfers the
-    // ArrayBuffer to the worker, detaching the original) — hand it a copy
-    // so `bytes` stays usable for the form scan and the download.
-    const pdf = await pdfDocument(new Uint8Array(bytes.slice(0)));
-    doc = pdf;
-
-    const n = pdf.numPages;
-    if (n === 0) throw new Error('This PDF has no pages');
-    const metas: PageMeta[] = [];
-    for (let p = 1; p <= n; p += 1) {
-      const page = await pdf.getPage(p);
-      const base = page.getViewport({ scale: 1 });
-      metas.push({ widthPt: base.width, heightPt: base.height });
-    }
-
-    // Adaptive display width so big documents stay light in memory.
-    const target = n <= 10 ? 560 : n <= 50 ? 420 : 300;
-    const firstWidth = metas[0]?.widthPt ?? 595;
-    setPageScale(Math.min(1.6, target / firstWidth));
-    setPageMeta(metas);
-    setPageCount(n);
-    setProgress({ done: 0, total: n, label: 'Rendering pages…' });
-    if (announce) {
-      await yieldToBrowser(); // let the For rows mount before painting
-      for (let p = 1; p <= n; p += 1) {
-        setProgress({ done: p - 1, total: n, label: `Rendering page ${p}` });
-        const canvas = pageCanvases.get(p);
-        if (!canvas) continue;
-        const page = await pdf.getPage(p);
-        const viewport = page.getViewport({ scale: pageScale() });
-        canvas.width = Math.max(1, Math.ceil(viewport.width));
-        canvas.height = Math.max(1, Math.ceil(viewport.height));
-        if (!canvas.getContext('2d')) continue;
-        await page.render({ canvas, viewport }).promise;
-        setProgress({ done: p, total: n, label: `Rendering page ${p}` });
-        await yieldToBrowser();
-      }
-    } else {
-      await yieldToBrowser();
-      await renderAllPages();
-    }
-  };
+  const selectedStamp = () => stamps().find((s) => s.id === selected()) ?? null;
 
   const pickFile = async (files: File[]) => {
     const candidate = files[0];
@@ -194,7 +178,7 @@ export default function PdfSignPage() {
     setPhase('loading');
     try {
       const bytes = await readFileBytes(candidate);
-      await openDocument(bytes, true);
+      await openDocument(bytes);
       setWorkingBytes(bytes);
       const scan = await scanForm(bytes);
       setForm(scan);
@@ -207,8 +191,7 @@ export default function PdfSignPage() {
   };
 
   const clear = () => {
-    if (doc) disposePdf(doc);
-    doc = null;
+    void teardownRenderer();
     setFile(null);
     setWorkingBytes(null);
     setPageCount(0);
@@ -246,7 +229,7 @@ export default function PdfSignPage() {
     try {
       const out = await fillForm(workingBytes()!, updates);
       setProgress({ done: 1, total: 2, label: 'Re-rendering pages…' });
-      await openDocument(out, false);
+      await openDocument(out);
       setWorkingBytes(out);
       setProgress({ done: 2, total: 2, label: 'Done' });
       setPhase('ready');
@@ -258,10 +241,16 @@ export default function PdfSignPage() {
   };
 
   /* ---------------- signatures ---------------- */
+  // Object URLs for signature previews are route-owned resources
+  // (handoff P0.4); the registry revokes them on replace/clear/unmount.
+  const sigUrls = createObjectUrlRegistry();
+  onCleanup(() => sigUrls.clear());
 
   const adoptSignature = (png: Uint8Array, width: number, height: number) => {
+    const old = sig();
+    if (old) sigUrls.revoke(old.dataUrl);
     const blob = new Blob([png.buffer as ArrayBuffer], { type: 'image/png' });
-    const dataUrl = URL.createObjectURL(blob);
+    const dataUrl = sigUrls.create(blob);
     setSig({ png, dataUrl, width, height });
     setPlacing(true);
     setSelected(null);
@@ -315,16 +304,24 @@ export default function PdfSignPage() {
     if (!candidate) return;
     try {
       const bitmap = await createImageBitmap(candidate, { imageOrientation: 'from-image' });
-      const longest = Math.max(bitmap.width, bitmap.height);
-      const scale = longest > 800 ? 800 / longest : 1;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const png = await canvasToPng(canvas);
-      adoptSignature(png, canvas.width, canvas.height);
+      try {
+        const longest = Math.max(bitmap.width, bitmap.height);
+        const scale = longest > 800 ? 800 / longest : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const png = await canvasToPng(canvas);
+        const w = canvas.width;
+        const h = canvas.height;
+        canvas.width = 0;
+        canvas.height = 0; // release the backing store
+        adoptSignature(png, w, h);
+      } finally {
+        bitmap.close(); // caller-owned bitmap (P0.4)
+      }
     } catch {
       setError('Could not read that image. Use PNG or JPEG with a transparent/clean background.');
     }
@@ -430,102 +427,25 @@ export default function PdfSignPage() {
         <ToolColumns
           aside={
             <>
-              <div class="panel">
-                <div class="panel-title">Signature</div>
-                <div class="panel-body">
-                  <div class="tabs" role="tablist">
-                    {(['draw', 'type', 'upload'] as SigTab[]).map((tab) => (
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={sigTab() === tab}
-                        class={`tab ${sigTab() === tab ? 'active' : ''}`}
-                        onClick={() => setSigTab(tab)}
-                      >
-                        {tab === 'draw' ? 'Draw' : tab === 'type' ? 'Type' : 'Upload'}
-                      </button>
-                    ))}
-                  </div>
-                  <Show when={sigTab() === 'draw'}>
-                    <SignaturePad onApi={(api) => (drawnPad = api)} />
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-block"
-                      style="margin-top: 0.6rem"
-                      onClick={useDrawnSignature}
-                    >
-                      Use this signature
-                    </button>
-                  </Show>
-                  <Show when={sigTab() === 'type'}>
-                    <div class="field">
-                      <span>Your name</span>
-                      <input
-                        type="text"
-                        value={typedText()}
-                        onInput={(e) => setTypedText(e.currentTarget.value)}
-                        placeholder="e.g. Alex Rivera"
-                        style="font-family: cursive; font-size: 1.1rem"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-block"
-                      style="margin-top: 0.4rem"
-                      onClick={useTypedSignature}
-                    >
-                      Use this signature
-                    </button>
-                  </Show>
-                  <Show when={sigTab() === 'upload'}>
-                    <DropZone
-                      accept="image/png,image/jpeg,image/webp"
-                      title="Drop a signature image"
-                      subtitle="PNG with transparency works best"
-                      onFiles={useUploadedSignature}
-                    />
-                  </Show>
-                  <Show when={sig()}>
-                    <div class="sig-preview">
-                      <img src={sig()!.dataUrl} alt="Current signature" />
-                      <span class="file-size">
-                        {sig()!.width}×{sig()!.height}px
-                      </span>
-                    </div>
-                    <div class="range-row" style="margin-top: 0.5rem">
-                      <input
-                        type="range"
-                        min={60}
-                        max={420}
-                        step={5}
-                        value={stampWidth()}
-                        onChange={(e) => setStampWidth(Number(e.currentTarget.value))}
-                        aria-label="Stamp width"
-                      />
-                      <output>{stampWidth()}</output>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem">
-                      <button
-                        type="button"
-                        class="btn btn-sm btn-ghost"
-                        onClick={() => setPlacing(!placing())}
-                      >
-                        {placing() ? 'Stop placing' : 'Place on a page'}
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-sm btn-ghost"
-                        onClick={() => {
-                          setSig(null);
-                          setPlacing(false);
-                        }}
-                      >
-                        Discard
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              </div>
+              <SignatureChooser
+                sigTab={sigTab}
+                setSigTab={setSigTab}
+                onPadApi={(api) => (drawnPad = api)}
+                onUseDrawn={() => void useDrawnSignature()}
+                onUseTyped={() => void useTypedSignature()}
+                onUpload={useUploadedSignature}
+                typedText={typedText}
+                setTypedText={setTypedText}
+                sig={sig}
+                stampWidth={stampWidth}
+                setStampWidth={setStampWidth}
+                placing={placing}
+                onTogglePlacing={() => setPlacing(!placing())}
+                onDiscard={() => {
+                  setSig(null);
+                  setPlacing(false);
+                }}
+              />
 
               <Show when={form()?.xfa}>
                 <div class="error-card" role="alert" style="margin-top: 1rem">
@@ -538,66 +458,13 @@ export default function PdfSignPage() {
               </Show>
 
               <Show when={hasFormFields() && !form()?.xfa}>
-                <div class="panel" style="margin-top: 1rem">
-                  <div class="panel-title">Form fields</div>
-                  <div class="panel-body" style="max-height: 340px; overflow-y: auto">
-                    <For each={form()!.fields}>
-                      {(f: FieldInfo) => (
-                        <div class="field">
-                          <span title={f.name}>{f.name}</span>
-                          <Show when={f.type === 'text' || f.type === 'date'}>
-                            <input
-                              type="text"
-                              disabled={f.type === 'date'}
-                              placeholder={
-                                f.type === 'date'
-                                  ? 'Date fields are not fillable in this build'
-                                  : 'Value'
-                              }
-                              value={
-                                typeof getFieldValue(f.name) === 'string'
-                                  ? (getFieldValue(f.name) as string)
-                                  : ''
-                              }
-                              onInput={(e) => setFieldValue(f.name, e.currentTarget.value)}
-                            />
-                          </Show>
-                          <Show when={f.type === 'checkbox'}>
-                            <label class="toggle">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(getFieldValue(f.name))}
-                                onChange={(e) => setFieldValue(f.name, e.currentTarget.checked)}
-                              />
-                              <span class="knob" />
-                              <span>Checked</span>
-                            </label>
-                          </Show>
-                          <Show when={f.type === 'radio' || f.type === 'dropdown'}>
-                            <select
-                              value={String(getFieldValue(f.name))}
-                              onChange={(e) => setFieldValue(f.name, e.currentTarget.value)}
-                            >
-                              <option value="">—</option>
-                              {(f.choices ?? []).map((choice) => (
-                                <option value={choice}>{choice}</option>
-                              ))}
-                            </select>
-                          </Show>
-                        </div>
-                      )}
-                    </For>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-block"
-                      style="margin-top: 0.8rem"
-                      onClick={applyForm}
-                      disabled={phase() !== 'ready'}
-                    >
-                      Apply form fill
-                    </button>
-                  </div>
-                </div>
+                <FormPanel
+                  fields={() => form()!.fields}
+                  getFieldValue={getFieldValue}
+                  setFieldValue={setFieldValue}
+                  onApply={() => void applyForm()}
+                  applyDisabled={() => phase() !== 'ready'}
+                />
               </Show>
 
               <AdSlot slot="tool-bottom" className="aside-ad" />
@@ -606,37 +473,19 @@ export default function PdfSignPage() {
         >
           <div class="panel">
             <div class="panel-body">
-              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
-              <Show when={!file() || phase() === 'empty'}>
-                <DropZone
-                  accept="application/pdf,.pdf"
-                  title="Drop a PDF to sign or fill"
-                  subtitle="your document never leaves this device"
-                  busy={phase() === 'loading'}
-                  onFiles={pickFile}
-                />
-              </Show>
-              <Show when={file()}>
-                <div class="file-row" style="margin-bottom: 0.5rem">
-                  <span class="file-name" title={file()!.name}>
-                    {file()!.name}
-                  </span>
-                  <span class="file-size">
-                    {humanSize(file()!.size)} · {pageCount()} pages
-                  </span>
-                  <span class="file-actions">
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-icon btn-ghost"
-                      aria-label="Remove PDF"
-                      onClick={clear}
-                      disabled={phase() === 'processing'}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </span>
-                </div>
-              </Show>
+              <SinglePdfInput
+                file={file}
+                pageCount={pageCount}
+                showDrop={() => !file() || phase() === 'empty'}
+                dropTitle="Drop a PDF to sign or fill"
+                dropSubtitle="your document never leaves this device"
+                busy={phase() === 'loading'}
+                disableRemove={phase() === 'processing'}
+                note={chain.note}
+                dismissNote={chain.dismissNote}
+                onFiles={pickFile}
+                onClear={clear}
+              />
 
               <Show when={placing()}>
                 <div class="placing-banner" role="status">
@@ -655,105 +504,44 @@ export default function PdfSignPage() {
           </div>
 
           <Show when={phase() !== 'empty' && phase() !== 'loading' && pageCount() > 0}>
-            <div class="pages-vertical">
-              <For each={pageMeta()}>
-                {(_, index) => {
-                  const p = index() + 1;
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: canvas-like placement surface; stamps are focusable buttons
-                    <div
-                      class="stage"
-                      data-page={p}
-                      data-placing={placing() ? 'true' : 'false'}
-                      onClick={onStageClick(p)}
-                    >
-                      <canvas
-                        class="stage-canvas"
-                        ref={(el) => {
-                          if (el) pageCanvases.set(p, el);
-                          else pageCanvases.delete(p);
-                        }}
-                      />
-                      <For each={stamps().filter((s) => s.page === p)}>
-                        {(s) => (
-                          <button
-                            type="button"
-                            class={`stamp ${s.id === selected() ? 'selected' : ''}`}
-                            style={{
-                              left: `${s.x}px`,
-                              top: `${s.y}px`,
-                              width: `${s.w}px`,
-                              height: `${s.h}px`,
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelected(s.id);
-                            }}
-                            aria-label={`Signature on page ${p} — press Enter to remove`}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === 'Delete') removeStamp(s.id);
-                            }}
-                          >
-                            <img src={s.dataUrl} alt="" />
-                          </button>
-                        )}
-                      </For>
-                      <span class="page-badge">{p}</span>
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
-
-            <Show when={selectedStamp()}>
-              <div class="panel stamp-controls">
-                <div
-                  class="panel-body"
-                  style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap"
-                >
-                  <label class="opt-label" for="stampw" style="margin: 0">
-                    Width
-                  </label>
-                  <input
-                    id="stampw"
-                    type="range"
-                    min={60}
-                    max={420}
-                    step={5}
-                    value={selectedStamp()!.w}
-                    onChange={(e) =>
-                      resizeStamp(selectedStamp()!.id, Number(e.currentTarget.value))
-                    }
-                    style="flex: 1; min-width: 140px"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost"
-                    onClick={() => removeStamp(selectedStamp()!.id)}
-                  >
-                    <TrashIcon /> Remove
-                  </button>
-                </div>
-              </div>
-            </Show>
-
-            <div class="panel cta">
-              <div class="panel-body">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-block"
-                  onClick={download}
-                  disabled={(stamps().length === 0 && !formApplied()) || phase() === 'processing'}
-                >
-                  <DownloadIcon />
-                  {stamps().length > 0
-                    ? `Download signed PDF (${stamps().length} ${stamps().length === 1 ? 'stamp' : 'stamps'})`
-                    : formApplied()
-                      ? 'Download filled PDF'
-                      : 'Place a signature to download'}
-                </button>
-              </div>
-            </div>
+            <PdfStage
+              pageMeta={pageMeta}
+              stamps={stamps}
+              selected={selected}
+              placing={placing}
+              registerStage={(p, el) => {
+                if (el) {
+                  stageEls.set(p, el);
+                  stageObserver?.observe(el);
+                } else {
+                  const gone = stageEls.get(p);
+                  if (gone) stageObserver?.unobserve(gone);
+                  stageEls.delete(p);
+                }
+              }}
+              registerCanvas={(p, el) => {
+                if (el) pageCanvases.set(p, el);
+                else pageCanvases.delete(p);
+                renderer?.registerCanvas(p, el);
+              }}
+              onStageClick={onStageClick}
+              onStampClick={(id) => setSelected(id)}
+              onStampRemoveKey={removeStamp}
+              selectedStamp={selectedStamp}
+              onResizeStamp={resizeStamp}
+              onRemoveStamp={removeStamp}
+              downloadLabel={() =>
+                stamps().length > 0
+                  ? `Download signed PDF (${stamps().length} ${stamps().length === 1 ? 'stamp' : 'stamps'})`
+                  : formApplied()
+                    ? 'Download filled PDF'
+                    : 'Place a signature to download'
+              }
+              downloadDisabled={() =>
+                (stamps().length === 0 && !formApplied()) || phase() === 'processing'
+              }
+              onDownload={download}
+            />
           </Show>
 
           <Show when={phase() === 'loading' || phase() === 'processing'}>

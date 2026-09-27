@@ -6,15 +6,16 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createSignal, Show } from 'solid-js';
+import { createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
-import { ChainNote } from '~/components/ChainBar';
-import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
-import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
+import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
+import { SinglePdfInput } from '~/components/SinglePdfInput';
 import { type DocConversionResult, type DocFormat, pdfToDoc } from '~/features/pdf-to-doc/logic';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
+import { createOperation, isAbortError, type OperationHandle } from '~/lib/operation';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -34,6 +35,10 @@ export default function PdfToDocPage() {
 
   // Pick up a result chained from another tool ("Continue with …").
   const chain = useChainedPdf((f) => pickFile([f]));
+
+  /** Cancellation for the in-flight conversion (P1.6). */
+  let opHandle: OperationHandle | null = null;
+  onCleanup(() => opHandle?.cancel());
 
   const pickFile = (files: File[]) => {
     const candidate = files[0];
@@ -55,6 +60,8 @@ export default function PdfToDocPage() {
   };
 
   const clear = () => {
+    opHandle?.cancel();
+    opHandle = null;
     setFile(null);
     setPhase('empty');
     setResult(null);
@@ -68,17 +75,26 @@ export default function PdfToDocPage() {
     setPhase('processing');
     setError('');
     setResult(null);
+    const onProgress: ProgressFn = (done, total, label) =>
+      setProgress({ done, total, label: label ?? '' });
+    const handle = createOperation(onProgress);
+    opHandle = handle;
     try {
       const data = await readFileBytes(f.file);
-      const onProgress: ProgressFn = (done, total, label) =>
-        setProgress({ done, total, label: label ?? '' });
-      const outcome = await pdfToDoc(data, format(), onProgress);
+      const outcome = await pdfToDoc(data, format(), onProgress, { op: handle.op });
       const base = f.name.replace(/\.pdf$/i, '') || 'document';
       setResult({ ...outcome, name: `${base}.${format()}` });
       setPhase('done');
     } catch (err) {
+      if (isAbortError(err)) {
+        setPhase('ready');
+        setProgress({ done: 0, total: 1, label: '' });
+        return;
+      }
       setPhase('ready');
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      opHandle = null;
     }
   };
 
@@ -145,35 +161,17 @@ export default function PdfToDocPage() {
         >
           <div class="panel">
             <div class="panel-body">
-              <ChainNote note={chain.note} dismiss={chain.dismissNote} />
-              <Show when={!file() || phase() === 'empty'}>
-                <DropZone
-                  accept="application/pdf,.pdf"
-                  title="Drop a PDF here"
-                  subtitle="converted to an editable document on your device"
-                  busy={phase() === 'processing'}
-                  onFiles={pickFile}
-                />
-              </Show>
-              <Show when={file()}>
-                <div class="file-row" style="margin-bottom: 0.5rem">
-                  <span class="file-name" title={file()!.name}>
-                    {file()!.name}
-                  </span>
-                  <span class="file-size">{humanSize(file()!.size)}</span>
-                  <span class="file-actions">
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-icon btn-ghost"
-                      aria-label="Remove PDF"
-                      onClick={clear}
-                      disabled={phase() === 'processing'}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </span>
-                </div>
-              </Show>
+              <SinglePdfInput
+                file={file}
+                showDrop={() => !file() || phase() === 'empty'}
+                dropTitle="Drop a PDF here"
+                dropSubtitle="converted to an editable document on your device"
+                busy={phase() === 'processing'}
+                note={chain.note}
+                dismissNote={chain.dismissNote}
+                onFiles={pickFile}
+                onClear={clear}
+              />
               <Show when={error()}>
                 <div class="error-card" role="alert">
                   <AlertIcon />

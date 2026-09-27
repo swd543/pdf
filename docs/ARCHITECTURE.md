@@ -48,8 +48,10 @@ dependency on a backend. The only "server" is a static file host.
   `loadingTask.destroy()` behind a module-level chain: a new `getDocument`
   that races an in-flight destroy fails with "the worker is being
   destroyed", so every open awaits the last destroy first.
-- v6 `render()` needs `{ canvas, viewport }` and the task must be
-  `destroy()`ed (see `disposePdf`).
+- v6 `render()` takes `{ canvas, viewport }` and returns a `RenderTask`;
+  cancellation is `RenderTask.cancel()` (v6 removed the
+  `abortController` render parameter — bridge external `AbortSignal`s
+  with a listener that calls `task.cancel()`).
 - In Node (tests/E2E validation) pdfjs wants a plain `Uint8Array` and
   refuses Node `Buffer`s — the E2E helpers convert before `getDocument`.
   And `pdfjs.getDocument` **detaches the buffer it is given** (it transfers
@@ -86,6 +88,73 @@ functions over `Uint8Array` inputs, with a co-located
 `logic.test.ts` (vitest, incl. integration tests that run the real WASM
 core and pdf-lib). Routes are thin: file state, progress, error handling,
 DOM. This keeps the interesting code testable in Node without a browser.
+
+## Performance & resource-safety layer
+
+The pass documented in [ARCHITECTURE-PERFORMANCE-HANDOFF.md](ARCHITECTURE-PERFORMANCE-HANDOFF.md)
+added these cross-cutting primitives (all in `src/lib/` unless noted):
+
+- **`limits.ts`** — interactive ceilings: 500 pages per page picker,
+  200 thumbnails per tool session, 12 MP / 8192 px canvas bounds, 5 live
+  Sign canvases, 250 MB of eager merge input bytes. Exceeding a page cap
+  surfaces a friendly error (with the real page count) instead of
+  hanging the tab.
+- **`canvas.ts`** — `boundedCanvasSize()` clamps a requested canvas to
+  the pixel/side ceilings (aspect-preserving; pdf-to-image re-scales its
+  viewport instead of stretching), `releaseCanvas()` zeroes a canvas's
+  backing store when it is no longer needed.
+- **`object-urls.ts`** — a tiny registry (`create/revoke/clear`) so every
+  `URL.createObjectURL` has one owner and one guaranteed revoke (routes
+  register `onCleanup(() => urls.clear())`).
+- **`operation.ts`** — `createOperation(progress)` gives each long-running
+  tool run a `signal` + `checkpoint()`; heavy loops checkpoint between
+  pages/images, and `cancel()` (Clear button, unmount) aborts them.
+  `isAbortError()` distinguishes user cancellation from real failures.
+- **`zip.ts`** — `ZipStream` wraps fflate's streaming ZIP APIs:
+  PDF-to-image multi-page export and strong compression write pages as
+  they are produced instead of buffering every full-page JPEG.
+
+Resource ownership rules (enforced by code review + tests):
+
+- Every pdf.js `getDocument` takes a **disposable copy** of the bytes
+  (pdfjs detaches its input); anything that keeps the bytes alive (form
+  scan, download) owns the original.
+- Every opened `PDFDocumentProxy` has one owner that `disposePdf()`s it
+  in a `finally`; page proxies are `cleanup()`-ed after render.
+- **Sign & Fill** renders lazily and boundedly:
+  `features/pdf-sign/page-renderer.ts` owns the document and renders only
+  the IntersectionObserver window (±1 page, 5 live canvases max);
+  released canvases are zeroed and in-flight renders cancelled via
+  pdfjs `RenderTask.cancel()` (pdfjs 6 removed the `abortController`
+  render parameter).
+- **Combine** keeps one open document per selected file
+  (`features/pdf-combine/preview-session.ts`): thumbnails and every live
+  sheet preview share it, previews are debounced (160 ms) and superseded
+  renders are cancelled, not just discarded. The final combine re-reads
+  the `File` rather than keeping a second raw-byte copy.
+- **Merge** image pages preview as a CSS page frame
+  (`imagePageDimensions` shared with the real writer + `object-fit`):
+  one object URL + decoded dimensions per image, and size/margin changes
+  recompute styles only — no re-decode, no canvas re-render. Page-level
+  selection/reorder transforms are pure functions in
+  `features/pdf-merge/sequence.ts` (unit tested). The drag lifecycle
+  registers an explicit `onCleanup` for unmount mid-drag.
+
+Presentation reuse:
+
+- `components/SinglePdfInput.tsx` — the drop-zone + file-row + remove
+  button shared by Compress, Combine, PDF-to-image, PDF-to-doc and Sign.
+  Presentational only; validation/opening/phases stay in the routes
+  (no universal `usePdfTool()` hook — the tools differ in lifecycle).
+- Route decomposition (handoff P2.3): Sign's `SignatureChooser` /
+  `FormPanel` / `PdfStage`, Combine's `PagePicker` / `SheetPreview`,
+  and Merge's `MergeFileList` / `MergePageStrip` own their JSX; the
+  routes keep orchestration, options, and result state.
+
+One SSR gotcha these components taught: **Solid's server `Show` does not
+unwrap accessor `when` values** (a function is truthy). Always pass a
+plain value (`when={file() !== null}`), not a bare accessor, or the
+prerendered HTML renders content that should be hidden.
 
 ## Tool chaining (explicit downloads, no auto-download)
 
