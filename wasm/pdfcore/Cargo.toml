@@ -16,7 +16,7 @@ lopdf = "0.37"
 wasm-bindgen = "0.2"
 # Direct dependency so the `wasm_js` feature is unified into the shared
 # getrandom copy for wasm32-unknown-unknown builds (see lopdf#408).
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [profile.release]
 opt-level = "s"
