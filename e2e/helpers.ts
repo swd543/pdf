@@ -233,6 +233,67 @@ export async function pdfInfo(data: Uint8Array): Promise<PdfInfo> {
   return { pages };
 }
 
+export interface PdfImagePlacement {
+  width: number;
+  height: number;
+  x: number;
+  /** Bottom-origin PDF y coordinate. */
+  y: number;
+}
+
+/** Image placement matrices from a page's PDF.js operator list.
+ *
+ * Used by Sign E2E tests to prove that a stamp's downloaded PDF position
+ * matches its preview, rather than merely proving that an image exists.
+ */
+export async function pdfImagePlacements(
+  data: Uint8Array,
+  pageNumber = 1,
+): Promise<PdfImagePlacement[]> {
+  const pdf = await pdfjs.getDocument({
+    data: new Uint8Array(data),
+    isEvalSupported: false,
+    useSystemFonts: false,
+  }).promise;
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const ops = await page.getOperatorList();
+    const placements: PdfImagePlacement[] = [];
+    type Matrix = [number, number, number, number, number, number];
+    const multiply = (m1: Matrix, m2: Matrix): Matrix => [
+      m1[0] * m2[0] + m1[2] * m2[1],
+      m1[1] * m2[0] + m1[3] * m2[1],
+      m1[0] * m2[2] + m1[2] * m2[3],
+      m1[1] * m2[2] + m1[3] * m2[3],
+      m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+      m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+    ];
+    let ctm: Matrix = [1, 0, 0, 1, 0, 0];
+    const stack: Matrix[] = [];
+    for (let i = 0; i < ops.fnArray.length; i += 1) {
+      const fn = ops.fnArray[i];
+      if (fn === pdfjs.OPS.save) {
+        stack.push([...ctm]);
+      } else if (fn === pdfjs.OPS.restore) {
+        ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+      } else if (fn === pdfjs.OPS.transform) {
+        const args = ops.argsArray[i];
+        if (Array.isArray(args) && args.length >= 6) ctm = multiply(ctm, args as Matrix);
+      } else if (fn === pdfjs.OPS.paintImageXObject) {
+        placements.push({
+          width: Math.hypot(ctm[0], ctm[1]),
+          height: Math.hypot(ctm[2], ctm[3]),
+          x: ctm[4],
+          y: ctm[5],
+        });
+      }
+    }
+    return placements;
+  } finally {
+    await pdf.cleanup();
+  }
+}
+
 export function zipEntries(data: Uint8Array): Record<string, Uint8Array> {
   return unzipSync(data);
 }

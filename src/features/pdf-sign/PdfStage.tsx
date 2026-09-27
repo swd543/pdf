@@ -5,6 +5,19 @@
  * page badge) and the selected-stamp controls. The route owns the lazy
  * renderer (canvas registration callbacks), the stamp state, and the
  * intersection observer that drives the render window.
+ *
+ * Stamps are stored in PDF points by the route; this component converts to
+ * display px with `pxPerPt` (the canvas's live scale) and translates drag
+ * gestures back into points, so placement survives window resizing and
+ * downloads embed exactly what the user sees.
+ *
+ * Drag mechanics: immutable stamp-state updates replace the stamp node in
+ * Solid's `For`, so live position/size changes use direct DOM writes
+ * (transform / width / height on the same node) to keep pointer capture
+ * stable. Only pointerup commits the final PDF-point position to state.
+ * Pointer capture is taken on the STAGE element (stable for the life of
+ * the page), native image dragging is disabled, and selecting happens on
+ * pointerdown, so a plain click selects while a drag moves.
  */
 import { For, Show } from 'solid-js';
 import { DownloadIcon, TrashIcon } from '~/components/Icons';
@@ -19,9 +32,15 @@ interface PdfStageProps {
   registerStage: (page: number, el: HTMLDivElement | null) => void;
   registerCanvas: (page: number, el: HTMLCanvasElement | null) => void;
   onStageClick: (page: number) => (e: MouseEvent) => void;
-  onStampClick: (id: string) => void;
   onStampRemoveKey: (id: string) => void;
+  /** Reactive display scale for a page: CSS pixels per PDF point. */
+  pxPerPt: (page: number) => number;
+  /** Select a stamp (pointerdown; also the drag start point). */
+  onStampSelect: (id: string) => void;
+  /** Move a stamp to (x, y) in PDF points (route clamps to the page). */
+  onStampMove: (id: string, x: number, y: number) => void;
   selectedStamp: () => StampView | null;
+  /** Resize a stamp to a width in PDF points (slider or corner handle). */
   onResizeStamp: (id: string, width: number) => void;
   onRemoveStamp: (id: string) => void;
   /** Download CTA label/disabled state is route-owned; rendered here so
@@ -31,7 +50,86 @@ interface PdfStageProps {
   onDownload: () => void;
 }
 
+type Gesture =
+  | {
+      kind: 'move';
+      id: string;
+      page: number;
+      px: number;
+      py: number;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      dx: number; // live clamped delta, display px
+      dy: number;
+      el: HTMLElement;
+    }
+  | {
+      kind: 'resize';
+      id: string;
+      page: number;
+      px: number;
+      py: number;
+      x: number;
+      y: number;
+      w: number; // start width, PDF pt
+      h: number; // start height, PDF pt
+      wPt: number; // live clamped width, PDF pt
+      el: HTMLElement;
+    };
+
 export function PdfStage(props: PdfStageProps) {
+  /** Stage elements (stable per page) — the pointer-capture targets. */
+  const stageEls = new Map<number, HTMLDivElement>();
+  /** The in-flight gesture (one at a time). Live deltas are clamped
+   *  against the page bounds so the stamp never previews off-page. */
+  let active: Gesture | null = null;
+  /** Set when a just-ended gesture must not be treated as a fresh stage
+   *  click (the browser fires click on the capture element's ancestor). */
+  let suppressStageClick = false;
+
+  const beginGesture = (e: PointerEvent, g: Gesture) => {
+    if (active) return; // one gesture at a time
+    const el = stageEls.get(g.page);
+    if (!el) return;
+    active = g;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+  };
+
+  /** Commit + end the in-flight gesture, converting the live display-px
+   *  state into a PDF-point update (the route re-clamps on commit). */
+  const endGesture = (e: PointerEvent) => {
+    if (!active) return;
+    const g = active;
+    const ds = props.pxPerPt(g.page);
+    if (g.kind === 'move') {
+      // Skip the commit (and the node swap) when nothing moved: a plain
+      // click already selected the stamp on pointerdown.
+      if (g.dx !== 0 || g.dy !== 0) {
+        props.onStampMove(g.id, g.x + g.dx / ds, g.y + g.dy / ds);
+      }
+    } else if (Math.abs(g.wPt - g.w) > 0.001) {
+      props.onResizeStamp(g.id, g.wPt);
+    }
+    const el = stageEls.get(g.page);
+    if (el) {
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* pointer already released */
+      }
+      el.classList.remove('dragging');
+    }
+    active = null;
+    // The pointerup (on the captured stage) makes the browser dispatch a
+    // click on the stage right after: swallow it so ending a stamp drag
+    // never places a new stamp.
+    suppressStageClick = true;
+    queueMicrotask(() => (suppressStageClick = false));
+  };
+
   return (
     <div class="pages-vertical">
       <For each={props.pageMeta()}>
@@ -43,8 +141,46 @@ export function PdfStage(props: PdfStageProps) {
               class="stage"
               data-page={p}
               data-placing={props.placing() ? 'true' : 'false'}
-              onClick={props.onStageClick(p)}
-              ref={(el) => props.registerStage(p, el)}
+              onClick={(e) => {
+                if (suppressStageClick) return;
+                props.onStageClick(p)(e);
+              }}
+              onPointerMove={(e) => {
+                if (!active) return;
+                const ds = props.pxPerPt(active.page);
+                if (active.kind === 'move') {
+                  // Live position: direct DOM write on the same node so
+                  // pointer capture remains stable. Committed on pointerup.
+                  const maxX = (m.widthPt - active.x - active.w) * ds;
+                  const minX = -active.x * ds;
+                  const maxY = (m.heightPt - active.y - active.h) * ds;
+                  const minY = -active.y * ds;
+                  active.dx = Math.min(maxX, Math.max(minX, e.clientX - active.px));
+                  active.dy = Math.min(maxY, Math.max(minY, e.clientY - active.py));
+                  active.el.style.transform = `translate(${active.dx}px, ${active.dy}px)`;
+                } else {
+                  // Live size: direct width/height writes (aspect held by
+                  // the commit-side clamp; the img reflows via contain).
+                  const ratio = active.w > 0 ? active.h / active.w : 0.4;
+                  const rawW = active.w + (e.clientX - active.px) / ds;
+                  const maxW = Math.max(
+                    0,
+                    Math.min(m.widthPt - active.x, (m.heightPt - active.y) / ratio),
+                  );
+                  const minW = Math.min(40, maxW);
+                  const w = Math.min(Math.max(minW, rawW), maxW);
+                  active.wPt = w;
+                  active.el.style.width = `${w * ds}px`;
+                  active.el.style.height = `${w * ratio * ds}px`;
+                }
+              }}
+              onPointerUp={endGesture}
+              onPointerCancel={endGesture}
+              ref={(el) => {
+                props.registerStage(p, el);
+                if (el) stageEls.set(p, el);
+                else stageEls.delete(p);
+              }}
             >
               <canvas
                 class="stage-canvas"
@@ -60,21 +196,60 @@ export function PdfStage(props: PdfStageProps) {
                     type="button"
                     class={`stamp ${s.id === props.selected() ? 'selected' : ''}`}
                     style={{
-                      left: `${s.x}px`,
-                      top: `${s.y}px`,
-                      width: `${s.w}px`,
-                      height: `${s.h}px`,
+                      left: `${s.x * props.pxPerPt(p)}px`,
+                      top: `${s.y * props.pxPerPt(p)}px`,
+                      width: `${s.w * props.pxPerPt(p)}px`,
+                      height: `${s.h * props.pxPerPt(p)}px`,
                     }}
-                    onClick={(e) => {
+                    onPointerDown={(e) => {
+                      if (e.pointerType === 'mouse' && e.button !== 0) return;
                       e.stopPropagation();
-                      props.onStampClick(s.id);
+                      props.onStampSelect(s.id);
+                      beginGesture(e, {
+                        kind: 'move',
+                        id: s.id,
+                        page: p,
+                        px: e.clientX,
+                        py: e.clientY,
+                        x: s.x,
+                        y: s.y,
+                        w: s.w,
+                        h: s.h,
+                        dx: 0,
+                        dy: 0,
+                        el: e.currentTarget,
+                      });
                     }}
-                    aria-label={`Signature on page ${p}: press Enter to remove`}
+                    aria-label={`Signature on page ${p}: drag to move, Enter or Delete to remove`}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === 'Delete') props.onStampRemoveKey(s.id);
                     }}
                   >
-                    <img src={s.dataUrl} alt="" />
+                    <img src={s.dataUrl} alt="" draggable={false} />
+                    <Show when={s.id === props.selected()}>
+                      <span
+                        class="stamp-resize"
+                        onPointerDown={(e) => {
+                          if (e.pointerType === 'mouse' && e.button !== 0) return;
+                          e.stopPropagation();
+                          const btn = e.currentTarget.parentElement;
+                          if (!(btn instanceof HTMLElement)) return;
+                          beginGesture(e, {
+                            kind: 'resize',
+                            id: s.id,
+                            page: p,
+                            px: e.clientX,
+                            py: e.clientY,
+                            x: s.x,
+                            y: s.y,
+                            w: s.w,
+                            h: s.h,
+                            wPt: s.w,
+                            el: btn,
+                          });
+                        }}
+                      />
+                    </Show>
                   </button>
                 )}
               </For>
@@ -96,14 +271,15 @@ export function PdfStage(props: PdfStageProps) {
             <input
               id="stampw"
               type="range"
-              min={60}
-              max={420}
+              min={40}
+              max={400}
               step={5}
               value={props.selectedStamp()!.w}
               onChange={(e) =>
                 props.onResizeStamp(props.selectedStamp()!.id, Number(e.currentTarget.value))
               }
               style="flex: 1; min-width: 140px"
+              aria-label="Selected stamp width in points"
             />
             <button
               type="button"

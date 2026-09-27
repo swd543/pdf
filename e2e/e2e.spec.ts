@@ -24,6 +24,7 @@ import {
   jpegSize,
   makeCanvasImages,
   odtXml,
+  pdfImagePlacements,
   pdfInfo,
   pngSize,
   processAndDownload,
@@ -1089,6 +1090,147 @@ test.describe('sign & fill', () => {
       );
     });
     await expect(page.locator('.sig-preview img')).toHaveCount(1);
+  });
+
+  test('placed stamp: drag, resize, and remove', async ({ page }) => {
+    await page.goto('/pdf-sign');
+    await dropFixtures(page, ['text-1p.pdf']);
+    await page.locator('[role=tab]', { hasText: 'Type' }).click();
+    await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
+    await clickButton(page, /^Use this signature$/);
+    const stage = page.locator('.stage[data-page="1"]');
+    const sbox = (await stage.boundingBox())!;
+    await stage.click({ position: { x: sbox.width / 2, y: sbox.height / 2 } });
+    await expect(page.locator('.stamp')).toHaveCount(1);
+    const stamp = page.locator('.stamp');
+    // the page is taller than the viewport: bring the stamp to a centered,
+    // fully visible spot before dragging (mouse events need viewport space)
+    await stamp.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(50);
+    const before = (await stamp.boundingBox())!;
+    // drag the stamp 60px left and 30px up
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before.x + before.width / 2 - 60, before.y + before.height / 2 - 30, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    const after = (await stamp.boundingBox())!;
+    expect(after.x).toBeCloseTo(before.x - 60, -1);
+    expect(after.y).toBeCloseTo(before.y - 30, -1);
+    // resize with the corner handle: drag it 40px to the right
+    const handle = page.locator('.stamp-resize');
+    await expect(handle).toHaveCount(1);
+    const hbox = (await handle.boundingBox())!;
+    const wBefore = after.width;
+    await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(hbox.x + hbox.width / 2 + 40, hbox.y + hbox.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const wAfter = (await stamp.boundingBox())!.width;
+    expect(wAfter).toBeGreaterThan(wBefore + 20);
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(stamp).toHaveCount(0);
+  });
+
+  test('placed stamp drags with Android-style touch events', async ({ browser }) => {
+    const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+    const tp = await ctx.newPage();
+    await tp.goto('/pdf-sign');
+    await dropFixtures(tp, ['text-1p.pdf']);
+    await tp.locator('[role=tab]', { hasText: 'Type' }).click();
+    await tp.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
+    await clickButton(tp, /^Use this signature$/);
+    const stage = tp.locator('.stage[data-page="1"]');
+    await stage.click({ position: { x: 80, y: 200 } });
+    const stamp = tp.locator('.stamp');
+    await expect(stamp).toHaveCount(1);
+    await stamp.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await tp.waitForTimeout(100);
+    const before = (await stamp.boundingBox())!;
+    const cx = before.x + before.width / 2;
+    const cy = before.y + before.height / 2;
+    const cdp = await ctx.newCDPSession(tp);
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy }],
+    });
+    for (let i = 1; i <= 8; i += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: cx + (40 * i) / 8, y: cy + (20 * i) / 8 }],
+      });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await tp.waitForTimeout(100);
+    const after = (await stamp.boundingBox())!;
+    expect(after.x).toBeGreaterThan(before.x + 25);
+    expect(after.y).toBeGreaterThan(before.y + 10);
+    await expect(stamp).toHaveCount(1); // ending the drag must not place another stamp
+    await ctx.close();
+  });
+
+  test('stamp placed at the page edge is clamped fully inside the page', async ({ page }) => {
+    await page.goto('/pdf-sign');
+    await dropFixtures(page, ['text-1p.pdf']);
+    await page.locator('[role=tab]', { hasText: 'Type' }).click();
+    await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
+    await clickButton(page, /^Use this signature$/);
+    const stage = page.locator('.stage[data-page="1"]');
+    const sbox = (await stage.boundingBox())!;
+    // click ~4px inside the bottom-right corner: the stamp must fit on the page
+    await stage.click({ position: { x: sbox.width - 4, y: sbox.height - 4 } });
+    const stamp = page.locator('.stamp');
+    await expect(stamp).toHaveCount(1);
+    const cbox = (await page.locator('.stage[data-page="1"] .stage-canvas').boundingBox())!;
+    const tbox = (await stamp.boundingBox())!;
+    expect(tbox.x).toBeGreaterThanOrEqual(cbox.x - 1);
+    expect(tbox.y).toBeGreaterThanOrEqual(cbox.y - 1);
+    expect(tbox.x + tbox.width).toBeLessThanOrEqual(cbox.x + cbox.width + 1);
+    expect(tbox.y + tbox.height).toBeLessThanOrEqual(cbox.y + cbox.height + 1);
+    const pdf = await captureDownload(page, () =>
+      clickButton(page, /Download signed PDF \(1 stamp\)/),
+    );
+    const info = await pdfInfo(pdf);
+    expect(info.pages).toHaveLength(1);
+    const placements = await pdfImagePlacements(pdf);
+    expect(placements).toHaveLength(1);
+    const placed = placements[0]!;
+    const pageInfo = info.pages[0]!;
+    // Preview coordinates use a top-left origin; PDF image transforms use
+    // bottom-left. Compare the downloaded matrix with the preview box.
+    const expectedX = ((tbox.x - cbox.x) / cbox.width) * pageInfo.w;
+    const expectedTop = ((tbox.y - cbox.y) / cbox.height) * pageInfo.h;
+    const expectedW = (tbox.width / cbox.width) * pageInfo.w;
+    const expectedH = (tbox.height / cbox.height) * pageInfo.h;
+    const expectedY = pageInfo.h - expectedTop - expectedH;
+    expect(Math.abs(placed.x - expectedX)).toBeLessThan(4);
+    expect(Math.abs(placed.y - expectedY)).toBeLessThan(4);
+    expect(Math.abs(placed.width - expectedW)).toBeLessThan(4);
+    expect(Math.abs(placed.height - expectedH)).toBeLessThan(4);
+  });
+
+  test('stamps stay anchored to the page when the window resizes', async ({ page }) => {
+    await page.goto('/pdf-sign');
+    await dropFixtures(page, ['text-1p.pdf']);
+    await page.locator('[role=tab]', { hasText: 'Type' }).click();
+    await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
+    await clickButton(page, /^Use this signature$/);
+    const stage = page.locator('.stage[data-page="1"]');
+    const sbox = (await stage.boundingBox())!;
+    await stage.click({ position: { x: sbox.width / 2, y: sbox.height * 0.75 } });
+    await expect(page.locator('.stamp')).toHaveCount(1);
+    const rel = async () => {
+      const t = (await page.locator('.stamp').boundingBox())!;
+      const c = (await page.locator('.stage[data-page="1"] .stage-canvas').boundingBox())!;
+      return { rx: (t.x - c.x) / c.width, ry: (t.y - c.y) / c.height };
+    };
+    const a = await rel();
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.waitForTimeout(150); // let the ResizeObserver fire
+    const b = await rel();
+    expect(Math.abs(a.rx - b.rx)).toBeLessThan(0.02);
+    expect(Math.abs(a.ry - b.ry)).toBeLessThan(0.02);
   });
 
   test('encrypted PDF → friendly error', async ({ page }) => {

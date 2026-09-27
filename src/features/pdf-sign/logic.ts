@@ -29,16 +29,68 @@ export interface Signature {
   height: number;
 }
 
-/** A placed signature stamp (display coordinates, 1-based page). */
+/** A placed signature stamp.
+ *
+ *  Coordinates are PDF points (top-left origin, 1-based page) so a stamp's
+ *  position is a property of the document, not of the current viewport:
+ *  window resizing and page scaling never move it relative to the page, and
+ *  the download embeds it at exactly the points the user placed it.
+ */
 export interface StampView {
   id: string;
   page: number;
-  x: number; // display px (top-left)
-  y: number;
-  w: number;
-  h: number;
+  x: number; // PDF pt, top-left
+  y: number; // PDF pt, top-left
+  w: number; // PDF pt
+  h: number; // PDF pt
   png: Uint8Array;
   dataUrl: string;
+}
+
+/** Clamp a stamp's top-left so the whole stamp stays on the page
+ *  (stamps drawn past a page edge are cropped in the PDF). */
+export function clampStampBox(
+  pageW: number,
+  pageH: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, pageW - w)),
+    y: Math.min(Math.max(0, y), Math.max(0, pageH - h)),
+  };
+}
+
+/** Shrink a stamp so it fits the page (aspect-preserving, both axes). */
+export function fitStampToPage(
+  pageW: number,
+  pageH: number,
+  w: number,
+  h: number,
+): { w: number; h: number } {
+  if (pageW <= 0 || pageH <= 0 || w <= 0 || h <= 0) return { w: 0, h: 0 };
+  const scale = Math.min(1, pageW / w, pageH / h);
+  return { w: w * scale, h: h * scale };
+}
+
+/** Aspect-preserving resize to a requested width, clamped to the page's
+ *  free space to the right of `x` and below `y`. */
+export function resizeStampBox(
+  pageW: number,
+  pageH: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  requestedW: number,
+): { w: number; h: number } {
+  const ratio = w > 0 ? h / w : 0.4;
+  const maxW = Math.max(0, Math.min(pageW - x, (pageH - y) / ratio));
+  const minW = Math.min(40, maxW);
+  const nw = Math.min(Math.max(minW, requestedW), maxW);
+  return { w: nw, h: nw * ratio };
 }
 
 export interface FieldInfo {

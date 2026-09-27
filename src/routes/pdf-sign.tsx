@@ -20,11 +20,14 @@ import type { SignaturePadApi } from '~/components/SignaturePad';
 import { SinglePdfInput } from '~/components/SinglePdfInput';
 import { FormPanel } from '~/features/pdf-sign/FormPanel';
 import {
+  clampStampBox,
   type FieldType,
   type FieldUpdate,
   type FormScan,
   fillForm,
+  fitStampToPage,
   placeSignatures,
+  resizeStampBox,
   type Signature,
   type SigTab,
   type StampView,
@@ -72,7 +75,8 @@ export default function PdfSignPage() {
   const [typedText, setTypedText] = createSignal('');
   const [sig, setSig] = createSignal<Signature | null>(null);
   const [placing, setPlacing] = createSignal(false);
-  const [stampWidth, setStampWidth] = createSignal(170);
+  /** Placement width in PDF points (document units, not display px). */
+  const [stampWidth, setStampWidth] = createSignal(150);
   const [stamps, setStamps] = createSignal<StampView[]>([]);
   const [selected, setSelected] = createSignal<string | null>(null);
 
@@ -80,6 +84,46 @@ export default function PdfSignPage() {
   const pageCanvases = new Map<number, HTMLCanvasElement>();
   /** Stage elements for the IntersectionObserver (lazy render window). */
   const stageEls = new Map<number, HTMLDivElement>();
+
+  /* ---------------- display scale (pt <-> px on screen) ----------------
+   * The stage CSS stretches canvases to the column width (width: 100%), so
+   * the displayed size of a page is NOT the renderer's scale. Every
+   * screen<->document conversion therefore goes through each canvas's live
+   * clientWidth, observed with a ResizeObserver. Stamps themselves are
+   * stored in PDF points, so a window resize can never move them relative
+   * to the page (or relative to what the downloaded file will contain).
+   */
+  const pxPerPtByPage = new Map<number, number>();
+  const [displayScaleVersion, setDisplayScaleVersion] = createSignal(0);
+  let displayScaleObserver: ResizeObserver | null = null;
+  const getDisplayScaleObserver = (): ResizeObserver | null => {
+    if (!displayScaleObserver && typeof ResizeObserver !== 'undefined') {
+      displayScaleObserver = new ResizeObserver(() => {
+        let changed = false;
+        for (const [p, canvas] of pageCanvases) {
+          const meta = pageMeta()[p - 1];
+          if (!meta || canvas.clientWidth === 0) continue;
+          const v = canvas.clientWidth / meta.widthPt;
+          if (pxPerPtByPage.get(p) !== v) {
+            pxPerPtByPage.set(p, v);
+            changed = true;
+          }
+        }
+        if (changed) setDisplayScaleVersion((v) => v + 1);
+      });
+    }
+    return displayScaleObserver;
+  };
+  /** Reactive px-per-pt for a page. Read the canvas live for event-time
+   *  precision (including a click before ResizeObserver's first callback);
+   *  the version signal still makes rendered stamp styles follow resizes. */
+  const pxPerPt = (p: number): number => {
+    displayScaleVersion(); // subscribe: stages re-render when it changes
+    const canvas = pageCanvases.get(p);
+    const meta = pageMeta()[p - 1];
+    if (canvas && meta && canvas.clientWidth > 0) return canvas.clientWidth / meta.widthPt;
+    return pxPerPtByPage.get(p) ?? pageScale();
+  };
 
   /* ---------------- document loading ---------------- */
   // Lazy bounded rendering (handoff P0.1): the renderer owns the PDF.js
@@ -104,6 +148,7 @@ export default function PdfSignPage() {
 
   onCleanup(() => {
     stageObserver?.disconnect();
+    displayScaleObserver?.disconnect();
     void renderer?.dispose();
   });
 
@@ -334,15 +379,33 @@ export default function PdfSignPage() {
     const s = sig();
     if (!s || !placing()) return;
     const canvas = pageCanvases.get(p);
-    if (!canvas) return;
+    const meta = pageMeta()[p - 1];
+    if (!canvas || !meta) return;
     const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, e.clientX - rect.left);
-    const y = Math.max(0, e.clientY - rect.top);
-    const w = stampWidth();
-    const h = Math.max(8, (w * s.height) / s.width);
+    // Display px -> PDF pt via the canvas's live display scale.
+    const ds = pxPerPt(p);
+    // Never let the stamp overshoot the page: out-of-bounds stamps are
+    // cropped in the PDF, so clamp placement to the free page area.
+    const size = fitStampToPage(
+      meta.widthPt,
+      meta.heightPt,
+      stampWidth(),
+      Math.max(8, (stampWidth() * s.height) / s.width),
+    );
+    const pos = clampStampBox(
+      meta.widthPt,
+      meta.heightPt,
+      (e.clientX - rect.left) / ds,
+      (e.clientY - rect.top) / ds,
+      size.w,
+      size.h,
+    );
     const id = nextStampId();
     expandAds();
-    setStamps([...stamps(), { id, page: p, x, y, w, h, png: s.png, dataUrl: s.dataUrl }]);
+    setStamps([
+      ...stamps(),
+      { id, page: p, x: pos.x, y: pos.y, w: size.w, h: size.h, png: s.png, dataUrl: s.dataUrl },
+    ]);
     setSelected(id);
   };
 
@@ -351,12 +414,27 @@ export default function PdfSignPage() {
     if (selected() === id) setSelected(null);
   };
 
+  /** Drag a placed stamp (coordinates in PDF pt, clamped to the page). */
+  const moveStamp = (id: string, x: number, y: number) => {
+    setStamps(
+      stamps().map((s) => {
+        if (s.id !== id) return s;
+        const meta = pageMeta()[s.page - 1];
+        if (!meta) return s;
+        return { ...s, ...clampStampBox(meta.widthPt, meta.heightPt, x, y, s.w, s.h) };
+      }),
+    );
+  };
+
+  /** Resize a placed stamp to a width in PDF pt (slider or corner handle),
+   *  aspect-preserving and clamped to the page's free space. */
   const resizeStamp = (id: string, width: number) => {
     setStamps(
       stamps().map((s) => {
         if (s.id !== id) return s;
-        const ratio = s.png.byteLength > 0 ? s.h / s.w : 0.4;
-        return { ...s, w: width, h: Math.max(8, width * ratio) };
+        const meta = pageMeta()[s.page - 1];
+        if (!meta) return s;
+        return { ...s, ...resizeStampBox(meta.widthPt, meta.heightPt, s.x, s.y, s.w, s.h, width) };
       }),
     );
   };
@@ -377,13 +455,14 @@ export default function PdfSignPage() {
       label: stamps().length > 0 ? 'Flattening signatures…' : 'Preparing PDF…',
     });
     try {
-      const scale = pageScale();
+      // Stamps are already PDF points: embed them verbatim, at the exact
+      // position the user saw on screen (no viewport-scale division).
       const stampsPt = stamps().map((s) => ({
         page: s.page,
-        x: s.x / scale,
-        y: s.y / scale,
-        width: s.w / scale,
-        height: s.h / scale,
+        x: s.x,
+        y: s.y,
+        width: s.w,
+        height: s.h,
         png: s.png,
       }));
       // Form-only documents carry no stamps — the filled bytes are ready as-is.
@@ -491,8 +570,9 @@ export default function PdfSignPage() {
 
               <Show when={placing()}>
                 <div class="placing-banner" role="status">
-                  Click a page where the signature should go. Click a placed stamp to select or
-                  remove it.
+                  Click a page where the signature should go. Placed stamps stay where you put them:
+                  drag one to move it, use the corner handle to resize it, or press Enter or Delete
+                  on it to remove it.
                 </div>
               </Show>
 
@@ -522,13 +602,22 @@ export default function PdfSignPage() {
                 }
               }}
               registerCanvas={(p, el) => {
-                if (el) pageCanvases.set(p, el);
-                else pageCanvases.delete(p);
+                if (el) {
+                  pageCanvases.set(p, el);
+                  getDisplayScaleObserver()?.observe(el);
+                } else {
+                  const gone = pageCanvases.get(p);
+                  if (gone) getDisplayScaleObserver()?.unobserve(gone);
+                  pageCanvases.delete(p);
+                  pxPerPtByPage.delete(p);
+                }
                 renderer?.registerCanvas(p, el);
               }}
               onStageClick={onStageClick}
-              onStampClick={(id) => setSelected(id)}
+              onStampSelect={(id) => setSelected(id)}
               onStampRemoveKey={removeStamp}
+              pxPerPt={pxPerPt}
+              onStampMove={moveStamp}
               selectedStamp={selectedStamp}
               onResizeStamp={resizeStamp}
               onRemoveStamp={removeStamp}

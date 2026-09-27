@@ -105,13 +105,13 @@ export function SignatureChooser(props: SignatureChooserProps) {
                 <input
                   type="range"
                   min={60}
-                  max={420}
+                  max={400}
                   step={5}
                   value={props.stampWidth()}
                   onChange={(e) => props.setStampWidth(Number(e.currentTarget.value))}
-                  aria-label="Stamp width"
+                  aria-label="Stamp width in points"
                 />
-                <output>{props.stampWidth()}</output>
+                <output>{props.stampWidth()} pt</output>
               </div>
               <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem">
                 <button type="button" class="btn btn-sm btn-ghost" onClick={props.onTogglePlacing}>
