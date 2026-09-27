@@ -2,33 +2,33 @@
 
 [![CI & Deploy](https://github.com/swd543/pdfboogie/actions/workflows/ci.yml/badge.svg)](https://github.com/swd543/pdfboogie/actions/workflows/ci.yml)
 
-Private PDF tools for the browser. Every operation — compressing, merging,
-converting, signing — runs entirely on your machine. Your documents are never
+Private PDF tools for the browser. Every operation (compressing, merging,
+converting, signing) runs entirely on your machine. Your documents are never
 uploaded anywhere: there is no backend to upload to.
 
-- **Compress PDF** — lossless re-save (custom Rust/WASM core) or a strong
+- **Compress PDF**: lossless re-save (custom Rust/WASM core) or a strong
   visual-quality mode that rebuilds pages as optimized images. A sensible
   mode is auto-picked per document (image-heavy → strong, text/vector →
   lossless) and page previews are rendered before you commit.
-- **Merge PDF** — combine PDFs (and images) into one document. Every page is
-  rendered as a thumbnail in a reorderable strip — drag the grip (mouse or
+- **Merge PDF**: combine PDFs (and images) into one document. Every page is
+  rendered as a thumbnail in a reorderable strip. Drag the grip (mouse or
   touch) or use the arrows to arrange pages individually, tap to select,
   Ctrl/⌘+tap to add, Shift+tap for a range, and move whole files up and
   down. Image pages preview exactly as they will be placed: page size and
   margins update the previews live.
-- **Combine pages (n-up)** — place 2 / 4 / 6 / 9 pages per sheet, portrait or
+- **Combine pages (n-up)**: place 2 / 4 / 6 / 9 pages per sheet, portrait or
   landscape, like a home-print 2-up layout, with page previews and a live
   preview of the combined sheets that re-renders whenever the layout changes.
-- **Image → PDF** — turn PNG/JPEG/WebP images into a PDF, one image per page.
-- **PDF → Image** — export pages as PNG, JPEG or WebP (any DPI), single file or
+- **Image → PDF**: turn PNG/JPEG/WebP images into a PDF, one image per page.
+- **PDF → Image**: export pages as PNG, JPEG or WebP (any DPI), single file or
   ZIP.
-- **Sign & Fill** — draw, type or upload a signature, place stamps on any page,
+- **Sign & Fill**: draw, type or upload a signature, place stamps on any page,
   and fill standard PDF form fields (text, checkbox, dropdown).
-- **PDF → Word** — convert PDF text to DOCX or ODT, client-side.
+- **PDF → Word**: convert PDF text to DOCX or ODT, client-side.
 
 Nothing downloads on its own: every result waits behind an explicit Download
 button, and the footer's “Related” links transition into “Continue with {file}”
-after an operation — chaining the result into any other tool with one click
+after an operation, chaining the result into any other tool with one click
 (in-memory only; the file never leaves the browser).
 
 Built with [SolidStart](https://start.solidjs.com) (SSG), pdf.js, pdf-lib,
@@ -68,7 +68,7 @@ All processing happens in the browser:
 - ZIP creation (PDF → Image, multi-file outputs): **fflate** in JS.
 
 No analytics, no telemetry, no cookies. See `src/site/config.ts` for the
-donation wallet info shown in the footer (direct wallet addresses — no
+donation wallet info shown in the footer (direct wallet addresses, no
 intermediary).
 
 ## Layout
@@ -95,11 +95,11 @@ and the landing page prerenders to fully static HTML for search engines.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — framework, PDF stack, WASM core.
-- [Ads](docs/ADS.md) — how the (optional) AdSense slots stay non-intrusive.
-- [SEO](docs/SEO.md) — prerendering, meta, JSON-LD, sitemap.
-- [Deployment](docs/DEPLOYMENT.md) — GitHub Pages via Actions.
+- [Architecture](docs/ARCHITECTURE.md): framework, PDF stack, WASM core.
+- [Ads](docs/ADS.md): how the (optional) AdSense slots stay non-intrusive.
+- [SEO](docs/SEO.md): prerendering, meta, JSON-LD, sitemap.
+- [Deployment](docs/DEPLOYMENT.md): GitHub Pages via Actions.
 
 ## License
 
-MIT — see `LICENSE` (or your preferred terms; adjust before publishing).
+MIT. See `LICENSE` (or your preferred terms; adjust before publishing).
