@@ -19,9 +19,14 @@
 # workflow file) is left open.
 #
 # Merge method: squash, so the history keeps one "Bump X from A to B" commit.
-# The workflow's GITHUB_TOKEN carries the `workflow` scope, so it can also
-# merge Dependabot PRs that touch .github/workflows/* (a limitation of
-# personal tokens).
+#
+# Known limits (GitHub security boundaries, not bugs):
+#   - PRs that modify .github/workflows cannot be merged by the GITHUB_TOKEN
+#     ("Resource not accessible by integration"); those need a human merge
+#     (web UI or a token with the `workflow` scope).
+#   - update-branch (the PR API) is refused for Dependabot's same-repo PRs
+#     (maintainer_can_modify=false). Stale-base PRs need a git push of the
+#     branch onto main (or the web "Update branch" button) to re-trigger CI.
 name: Dependabot auto-merge
 
 on:
@@ -166,6 +171,13 @@ jobs:
                 // 409/404: another run already merged it or it was closed.
                 if (e.status === 409 || e.status === 404) {
                   core.info(`#${pr.number}: already merged or closed; nothing to do`);
+                } else if (e.message && e.message.includes('not accessible by integration')) {
+                  // PR modifies .github/workflows: GitHub refuses merges by
+                  // the GITHUB_TOKEN. Needs a human (web UI / workflow-scope
+                  // token). Don't retry; say so.
+                  core.info(
+                    `#${pr.number}: needs a manual merge (workflow-file PR; GITHUB_TOKEN may not merge it)`,
+                  );
                 } else {
                   // Blocked (e.g. stale base checks) or transiently
                   // unavailable: expected states, not a failure.
