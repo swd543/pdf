@@ -20,7 +20,7 @@
  * pointerdown, so a plain click selects while a drag moves.
  */
 import { For, Show } from 'solid-js';
-import { DownloadIcon, TrashIcon } from '~/components/Icons';
+import { CloseIcon, DownloadIcon, TrashIcon } from '~/components/Icons';
 import type { StampView } from '~/features/pdf-sign/logic';
 import type { PageMeta } from '~/features/pdf-sign/page-renderer';
 
@@ -85,9 +85,13 @@ export function PdfStage(props: PdfStageProps) {
   /** The in-flight gesture (one at a time). Live deltas are clamped
    *  against the page bounds so the stamp never previews off-page. */
   let active: Gesture | null = null;
-  /** Set when a just-ended gesture must not be treated as a fresh stage
-   *  click (the browser fires click on the capture element's ancestor). */
-  let suppressStageClick = false;
+  /** Timestamp (ms) of the most recent gesture end. The browser dispatches a
+   *  synthetic click on the stage right after a pointerup; a microtask flag
+   *  can't reliably catch it (the click arrives in a later task on some
+   *  engines, e.g. Safari), so the stage's click handler ignores any click
+   *  within a short window after a gesture ends. That's what stops ending a
+   *  drag (or a click on an existing stamp) from placing a fresh stamp. */
+  let lastGestureEnd = 0;
 
   const beginGesture = (e: PointerEvent, g: Gesture) => {
     if (active) return; // one gesture at a time
@@ -123,11 +127,11 @@ export function PdfStage(props: PdfStageProps) {
       el.classList.remove('dragging');
     }
     active = null;
-    // The pointerup (on the captured stage) makes the browser dispatch a
-    // click on the stage right after: swallow it so ending a stamp drag
-    // never places a new stamp.
-    suppressStageClick = true;
-    queueMicrotask(() => (suppressStageClick = false));
+    // Remember when the gesture ended: the browser dispatches a synthetic
+    // click on the stage right after this pointerup, and the stage's click
+    // handler ignores clicks within the window (see onClick) so ending a
+    // drag never places a fresh stamp.
+    lastGestureEnd = Date.now();
   };
 
   return (
@@ -142,7 +146,11 @@ export function PdfStage(props: PdfStageProps) {
               data-page={p}
               data-placing={props.placing() ? 'true' : 'false'}
               onClick={(e) => {
-                if (suppressStageClick) return;
+                // Ignore the synthetic click that follows a just-ended gesture
+                // (drag / resize / click-on-a-stamp) so it never places a new
+                // stamp. A real placement click has no recent gesture and
+                // passes through.
+                if (Date.now() - lastGestureEnd < 400) return;
                 props.onStageClick(p)(e);
               }}
               onPointerMove={(e) => {
@@ -192,8 +200,16 @@ export function PdfStage(props: PdfStageProps) {
               />
               <For each={props.stamps().filter((s) => s.page === p)}>
                 {(s) => (
-                  <button
-                    type="button"
+                  // The stamp is a compound widget: a draggable/selectable
+                  // surface that must also hold a nested remove <button> and
+                  // the resize handle, so it can't be a semantic <button>.
+                  // A focusable role="button" div is the closest accessible
+                  // shape; the two a11y heuristics below don't fit this
+                  // pattern (tabindex is set, and the nested button is the
+                  // point).
+                  // biome-ignore lint/a11y/useSemanticElements: nested remove <button> precludes a semantic <button>
+                  // biome-ignore lint/a11y/useFocusableInteractive: tabindex={0} is set; lint false-positives on the nested interactive child
+                  <div
                     class={`stamp ${s.id === props.selected() ? 'selected' : ''}`}
                     style={{
                       left: `${s.x * props.pxPerPt(p)}px`,
@@ -201,6 +217,8 @@ export function PdfStage(props: PdfStageProps) {
                       width: `${s.w * props.pxPerPt(p)}px`,
                       height: `${s.h * props.pxPerPt(p)}px`,
                     }}
+                    role="button"
+                    tabindex={0}
                     onPointerDown={(e) => {
                       if (e.pointerType === 'mouse' && e.button !== 0) return;
                       e.stopPropagation();
@@ -227,6 +245,21 @@ export function PdfStage(props: PdfStageProps) {
                   >
                     <img src={s.dataUrl} alt="" draggable={false} />
                     <Show when={s.id === props.selected()}>
+                      <button
+                        type="button"
+                        class="stamp-remove"
+                        aria-label="Remove signature"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onRemoveStamp(s.id);
+                        }}
+                      >
+                        <CloseIcon />
+                      </button>
                       <span
                         class="stamp-resize"
                         onPointerDown={(e) => {
@@ -250,7 +283,7 @@ export function PdfStage(props: PdfStageProps) {
                         }}
                       />
                     </Show>
-                  </button>
+                  </div>
                 )}
               </For>
               <span class="page-badge">{p}</span>

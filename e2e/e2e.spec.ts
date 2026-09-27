@@ -1133,6 +1133,8 @@ test.describe('sign & fill', () => {
     const after = (await stamp.boundingBox())!;
     expect(after.x).toBeCloseTo(before.x - 60, -1);
     expect(after.y).toBeCloseTo(before.y - 30, -1);
+    // ending the drag must not drop a duplicate stamp at the release point
+    await expect(stamp).toHaveCount(1);
     // resize with the corner handle: drag it 40px to the right
     const handle = page.locator('.stamp-resize');
     await expect(handle).toHaveCount(1);
@@ -1144,7 +1146,28 @@ test.describe('sign & fill', () => {
     await page.mouse.up();
     const wAfter = (await stamp.boundingBox())!.width;
     expect(wAfter).toBeGreaterThan(wBefore + 20);
+    // releasing the resize handle must not drop a duplicate stamp
+    await expect(stamp).toHaveCount(1);
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(stamp).toHaveCount(0);
+  });
+
+  test('remove button on the stamp removes the placed signature', async ({ page }) => {
+    await page.goto('/pdf-sign');
+    await dropFixtures(page, ['text-1p.pdf']);
+    await page.locator('[role=tab]', { hasText: 'Type' }).click();
+    await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
+    await clickButton(page, /^Use this signature$/);
+    const stage = await signStage(page);
+    const sbox = (await stage.boundingBox())!;
+    await stage.click({ position: { x: sbox.width / 2, y: sbox.height * 0.75 } });
+    const stamp = page.locator('.stamp');
+    await expect(stamp).toHaveCount(1);
+    await stamp.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    // the placed stamp is selected, so its on-stamp remove control is shown
+    const remove = page.locator('.stamp-remove');
+    await expect(remove).toHaveCount(1);
+    await remove.click();
     await expect(stamp).toHaveCount(0);
   });
 

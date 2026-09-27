@@ -1002,6 +1002,29 @@ input[type="range"] {
   touch-action: none;
 }
 
+/* Top-right remove control (shown on the selected stamp). */
+.stamp .stamp-remove {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--err);
+  color: var(--bg);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.stamp .stamp-remove svg {
+  width: 11px;
+  height: 11px;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Ad slots (see docs/ADS.md)                                         */
 /* ------------------------------------------------------------------ */
