@@ -524,7 +524,11 @@ export default function MergePage() {
   };
 
   const pageTotal = () => seq().length;
-  const loadingFiles = () => items().some((i) => i.kind === 'pdf' && i.pageCount === 0);
+  // Failed files (thumbError) keep pageCount 0 but are not "loading" —
+  // their error is surfaced by the file row + error card, so the strip
+  // must not show a perpetual "loading pages…" tile for them.
+  const loadingFiles = () =>
+    items().some((i) => i.kind === 'pdf' && i.pageCount === 0 && !i.thumbError);
 
   return (
     <>
