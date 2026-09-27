@@ -11,8 +11,11 @@ uploaded anywhere: there is no backend to upload to.
   mode is auto-picked per document (image-heavy → strong, text/vector →
   lossless) and page previews are rendered before you commit.
 - **Merge PDF** — combine PDFs (and images) into one document. Every page is
-  rendered as a thumbnail in a reorderable strip — drag tiles or use the
-  arrows to arrange pages individually, or move whole files up and down.
+  rendered as a thumbnail in a reorderable strip — drag the grip (mouse or
+  touch) or use the arrows to arrange pages individually, tap to select,
+  Ctrl/⌘+tap to add, Shift+tap for a range, and move whole files up and
+  down. Image pages preview exactly as they will be placed: page size and
+  margins update the previews live.
 - **Combine pages (n-up)** — place 2 / 4 / 6 / 9 pages per sheet, portrait or
   landscape, like a home-print 2-up layout, with page previews and a live
   preview of the combined sheets that re-renders whenever the layout changes.

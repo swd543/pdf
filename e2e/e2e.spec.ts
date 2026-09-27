@@ -352,6 +352,8 @@ test.describe('ordering (merge)', () => {
     await dropFixtures(page, ['text-1p.pdf', 'text-5p.pdf']);
     const tiles = page.locator('.seq-tile');
     await expect(tiles).toHaveCount(6);
+    // the loading tile (if any) shifts the layout when it goes away — wait it out
+    await expect(page.locator('.seq-tile-loading')).toHaveCount(0);
     const grip = tiles.first().locator('.seq-grip');
     const last = tiles.last();
     const g = (await grip.boundingBox())!;
@@ -378,6 +380,7 @@ test.describe('ordering (merge)', () => {
     await dropFixtures(page, ['text-1p.pdf', 'text-5p.pdf']);
     const tiles = page.locator('.seq-tile');
     await expect(tiles).toHaveCount(6);
+    await expect(page.locator('.seq-tile-loading')).toHaveCount(0);
 
     // tap tile bodies to select 1p + 5p/p1
     await tiles.nth(0).click();
@@ -423,6 +426,104 @@ test.describe('ordering (merge)', () => {
     expect(texts[2]!).toContain('MARK-P2');
     expect(texts[3]!).toContain('MARK-P4');
     assertClean();
+  });
+
+  test('ctrl+click adds to selection, shift+click selects a range', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-5p.pdf']);
+    const tiles = page.locator('.seq-tile');
+    await expect(tiles).toHaveCount(5);
+
+    await tiles.nth(0).click(); // P1 selected
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(1);
+
+    await tiles.nth(2).click({ modifiers: ['Control'] }); // add P3, keep P1
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(2);
+    await expect(tiles.nth(1)).not.toHaveClass(/is-selected/);
+
+    await tiles.nth(4).click({ modifiers: ['Shift'] }); // range P3..P5 (P1 stays)
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(4);
+
+    // plain click on an unselected tile adds it without clearing the rest
+    await tiles.nth(0).click({ modifiers: ['Control'] }); // deselect P1
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(3);
+
+    // clear via the header chip
+    await page.locator('.seq-clear').click();
+    await expect(page.locator('.seq-tile.is-selected')).toHaveCount(0);
+    assertClean();
+  });
+
+  test('image preview reflects page size and margins', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await makeCanvasImages(page, [
+      { name: 'pic.png', mime: 'image/png', w: 800, h: 600, paint: 'hgrad' },
+    ]);
+    await expect(page.locator('.seq-tile')).toHaveCount(1);
+    const img = page.locator('img.seq-thumb');
+    await expect(img).toBeVisible();
+    const srcOf = () => img.getAttribute('src');
+    const fit = (await srcOf())!;
+    expect(fit).toMatch(/^data:image\//);
+
+    // A4: a portrait page frame around the landscape image
+    await page.selectOption('#mergePageSize', 'a4');
+    await expect.poll(srcOf).not.toBe(fit);
+    const a4 = (await srcOf())!;
+
+    // Letter: different aspect → different preview
+    await page.selectOption('#mergePageSize', 'letter');
+    await expect.poll(srcOf).not.toBe(a4);
+
+    // margins shrink the image inside the frame
+    const letter = (await srcOf())!;
+    await page.selectOption('#mergeMargin', '24');
+    await expect.poll(srcOf).not.toBe(letter);
+    assertClean();
+  });
+
+  test('touch drag on the grip reorders (CDP touch, Android-style)', async ({ browser }) => {
+    // A touch-enabled context: Chromium emits pointer events from these.
+    const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+    const tp = await ctx.newPage();
+    await tp.goto('/pdf-merge');
+    await dropFixtures(tp, ['text-1p.pdf', 'text-5p.pdf']);
+    const tiles = tp.locator('.seq-tile');
+    await expect(tiles).toHaveCount(6);
+    await expect(tp.locator('.seq-tile-loading')).toHaveCount(0);
+    await tp.evaluate(() =>
+      document.querySelector('.seq-wrap')?.scrollIntoView({ block: 'center' }),
+    );
+    await tp.waitForTimeout(250);
+
+    const grip = tiles.first().locator('.seq-grip');
+    const target = tiles.nth(2); // tile 3 (P3) — inside the 390px viewport
+    const g = (await grip.boundingBox())!;
+    const t = (await target.boundingBox())!;
+    const cdp = await ctx.newCDPSession(tp);
+    const cx = g.x + g.width / 2;
+    const cy = g.y + g.height / 2;
+    const tx = t.x + t.width / 2;
+    const ty = t.y + t.height / 2;
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy }],
+    });
+    for (let i = 1; i <= 10; i += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: cx + ((tx - cx) * i) / 10, y: cy + ((ty - cy) * i) / 10 }],
+      });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await tp.waitForTimeout(400);
+
+    // 1p was inserted before P3
+    const ids = await tiles.evaluateAll((els) => els.map((e) => e.dataset.seqId!));
+    expect(ids[2]!.endsWith('::1')).toBe(true);
+    await ctx.close();
   });
 });
 

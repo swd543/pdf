@@ -1345,19 +1345,19 @@ input[type="range"] {
   }
 }
 
-/* drag grip (touch + mouse) */
+/* drag grip (touch + mouse) — 44×44 target so it works on phones */
 .seq-grip {
   position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
-  width: 30px;
-  height: 30px;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 999px;
-  background: transparent;
-  color: var(--ink-faint);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--ink-muted);
   cursor: grab;
   touch-action: none;
   padding: 0;
@@ -1367,7 +1367,7 @@ input[type="range"] {
 }
 
 .seq-grip:hover {
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
   color: var(--ink);
 }
 
@@ -1375,10 +1375,20 @@ input[type="range"] {
   cursor: grabbing;
 }
 
+.seq-grip svg {
+  width: 16px;
+  height: 16px;
+}
+
 body.seq-dragging {
   cursor: grabbing;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* while dragging, stop the strip's scroll-snap from fighting the preview */
+body.seq-dragging .page-strip {
+  scroll-snap-type: none;
 }
 
 .seq-thumb-blank {

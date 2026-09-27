@@ -19,7 +19,7 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createMemo, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
 import { ChainNote } from '~/components/ChainBar';
 import {
@@ -39,7 +39,7 @@ import { type MergePageRef, mergePages } from '~/features/pdf-merge/logic';
 import { useChainedPdf } from '~/lib/chain';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, nextId, readFileBytes } from '~/lib/files';
-import { renderPageThumbs } from '~/lib/thumbs';
+import { renderImagePagePreview, renderPageThumbs } from '~/lib/thumbs';
 import { type FileItem, isImageFile, isPdfFile, yieldToBrowser } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -51,10 +51,8 @@ interface Item extends FileItem {
   pdfBytes?: Uint8Array;
   /** PDF: true page count; image: 1. 0 while the PDF is still loading. */
   pageCount: number;
-  /** JPEG data URLs for PDF pages (images use `thumbUrl`). */
+  /** JPEG data URLs for PDF pages (images use the output preview). */
   thumbs: string[];
-  /** Object URL for an image's single page thumbnail. */
-  thumbUrl?: string;
   /** Set when the PDF couldn't be rendered (e.g. password-protected). */
   thumbError?: string;
 }
@@ -96,9 +94,33 @@ export default function MergePage() {
   const [pageSize, setPageSize] = createSignal<PageSize>('fit');
   const [margin, setMargin] = createSignal(0);
 
-  // Pick up a result chained from another tool ("Continue with …").
-  // Lambda: `addFiles` is defined below; the hook invokes it in onMount.
+  /** Pick up a result chained from another tool ("Continue with …").
+   *  Lambda: `addFiles` is defined below; the hook invokes it in onMount. */
   const chain = useChainedPdf((f) => addFiles([f]));
+
+  /** Output-aware previews for image tiles (page size + margins). */
+  const [imgPrev, setImgPrev] = createSignal<Record<string, string>>({});
+  let imgPrevGen = 0;
+
+  createEffect(() => {
+    const ps = pageSize();
+    const mg = margin();
+    const imgs = items().filter((i) => i.kind === 'image');
+    if (imgs.length === 0) return;
+    const gen = ++imgPrevGen;
+    void (async () => {
+      const next = { ...imgPrev() };
+      for (const i of imgs) {
+        try {
+          next[i.id] = await renderImagePagePreview(i.file, ps, mg);
+        } catch {
+          // keep any previous preview; the tile falls back to a blank
+        }
+        if (gen !== imgPrevGen) return;
+      }
+      if (gen === imgPrevGen) setImgPrev(next);
+    })();
+  });
 
   const itemMap = createMemo(() => new Map(items().map((i) => [i.id, i])));
   const itemOf = (id: string) => itemMap().get(id);
@@ -152,11 +174,28 @@ export default function MergePage() {
 
   /* ---------------- selection ----------------------------------------- */
 
-  const toggleSelect = (id: string) => {
+  /** Last tile clicked/tapped — the anchor for Shift+click ranges. */
+  const [anchor, setAnchor] = createSignal<string | null>(null);
+
+  const toggleSelect = (e: MouseEvent, id: string) => {
+    const ids = seq().map((s) => s.id);
     const cur = new Set(selected());
+    // Shift+click: extend the selection over the range anchor → this tile.
+    if (e.shiftKey && anchor()) {
+      const a = ids.indexOf(anchor()!);
+      const b = ids.indexOf(id);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        for (const x of ids.slice(lo, hi + 1)) cur.add(x);
+        setSelected([...cur]);
+        return;
+      }
+    }
+    // Plain and Ctrl/⌘+click: toggle this tile, keep the rest.
     if (cur.has(id)) cur.delete(id);
     else cur.add(id);
     setSelected([...cur]);
+    setAnchor(id);
   };
 
   /* ---------------- reordering ---------------------------------------- */
@@ -214,20 +253,37 @@ export default function MergePage() {
         setDragging(tileId);
         setDragIdx(list.slice(0, firstPos).filter((s) => !block.has(s.id)).length);
       }
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const strip = el?.closest?.('.page-strip') as HTMLElement | null;
+      // Insertion index from the tiles' *live* rects (not elementFromPoint):
+      // the first rest tile whose center is left of the pointer receives
+      // the block before it. Right of every rest center, the block appends
+      // only past the last tile's right edge — over the strip background or
+      // the dragged block itself it keeps its current position (the block
+      // follows the pointer, so the pointer often rides on it).
+      const strip = document.querySelector('.page-strip');
       if (!strip) return;
-      const t = el?.closest?.('.seq-tile[data-seq-id]') as HTMLElement | null;
-      const list = seq();
       const block = dragBlock();
-      const rest = list.filter((s) => !block.has(s.id));
-      let idx = rest.length;
-      if (t?.dataset.seqId) {
-        const pos = rest.findIndex((s) => s.id === t.dataset.seqId);
-        if (pos >= 0) idx = pos; // drop in front of that tile
-        // over the dragged block itself: keep the current position
+      const rest = seq().filter((s) => !block.has(s.id));
+      const restEls = [...strip.querySelectorAll<HTMLElement>('.seq-tile[data-seq-id]')]
+        .map((el) => ({ id: el.dataset.seqId!, box: el.getBoundingClientRect() }))
+        .filter((x) => !block.has(x.id));
+      const yOk = (b: DOMRect) => ev.clientY >= b.top - 40 && ev.clientY <= b.bottom + 40;
+      let idx: number | null = null;
+      for (const x of restEls) {
+        if (!yOk(x.box)) continue;
+        if (ev.clientX < x.box.left + x.box.width / 2) {
+          idx = rest.findIndex((s) => s.id === x.id);
+          break;
+        }
       }
-      if (idx !== dragIdx()) flip(160, () => setDragIdx(idx));
+      if (idx === null) {
+        const last = restEls[restEls.length - 1];
+        if (last && yOk(last.box) && ev.clientX > last.box.right) idx = rest.length;
+        else idx = dragIdx() ?? rest.length;
+      }
+      if (idx < 0) idx = rest.length;
+      // Live preview moves are instant (no FLIP): in-flight transforms
+      // would shift the rects mid-drag. FLIP plays on commit instead.
+      if (idx !== dragIdx()) setDragIdx(idx);
     };
 
     const finish = (commit: boolean) => {
@@ -345,7 +401,6 @@ export default function MergePage() {
             kind,
             pageCount: 1,
             thumbs: [],
-            thumbUrl: URL.createObjectURL(file),
           },
         ]);
         setSeq([...seq(), { id: `${id}::1`, file: id, page: 1 }]);
@@ -401,8 +456,6 @@ export default function MergePage() {
   };
 
   const remove = (id: string) => {
-    const it = itemOf(id);
-    if (it?.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
     setItems(items().filter((x) => x.id !== id));
     setSeq(seq().filter((x) => x.file !== id));
     // Drop selections of removed pages.
@@ -447,10 +500,11 @@ export default function MergePage() {
   };
 
   const startOver = () => {
-    for (const i of items()) if (i.thumbUrl) URL.revokeObjectURL(i.thumbUrl);
     setItems([]);
     setSeq([]);
     setSelected([]);
+    setAnchor(null);
+    setImgPrev({});
     setDragging(null);
     setDragIdx(null);
     setPhase('empty');
@@ -523,9 +577,10 @@ export default function MergePage() {
                 <div class="panel-body">
                   <h3>Order matters</h3>
                   <p style="font-size: 0.88rem; color: var(--ink-muted); margin: 0">
-                    The merge follows the page strip below exactly. Tap pages to multi-select, drag
-                    the grip to move one page or the whole selection, or use the arrows.
-                    Password-protected PDFs can't be merged.
+                    The merge follows the page strip below exactly. Tap pages to select, Ctrl/⌘+tap
+                    to add more, Shift+tap for a range, then drag the ⠿ grip to move one page or the
+                    whole selection — or use the arrows. Image previews update live as you change
+                    page size or margins. Password-protected PDFs can't be merged.
                   </p>
                 </div>
               </div>
@@ -617,12 +672,15 @@ export default function MergePage() {
                     </div>
                     <ul
                       class="page-strip"
-                      aria-label="Page order — tap tiles to select, drag the grip to reorder"
+                      aria-label="Page order — tap tiles to select (Ctrl to add, Shift for a range), drag the grip to reorder"
                     >
                       <For each={previewSeq()}>
                         {(s) => {
                           const it = () => itemOf(s.file);
-                          const thumb = () => it()?.thumbUrl ?? it()?.thumbs[s.page - 1] ?? '';
+                          const thumb = () =>
+                            it()?.kind === 'image'
+                              ? (imgPrev()[s.file] ?? '')
+                              : (it()?.thumbs[s.page - 1] ?? '');
                           return (
                             <li
                               class="seq-tile"
@@ -631,7 +689,7 @@ export default function MergePage() {
                                 if (el) tileEls.set(s.id, el);
                                 else tileEls.delete(s.id);
                               }}
-                              onClick={() => toggleSelect(s.id)}
+                              onClick={(e) => toggleSelect(e, s.id)}
                               classList={{
                                 'is-selected': selectedSet().has(s.id),
                                 'is-dragging': dragBlock().has(s.id),
