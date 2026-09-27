@@ -579,7 +579,7 @@ test.describe('combine pages (n-up)', () => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-combine');
     await dropFixtures(page, ['text-5p.pdf']);
-    await expect(page.locator('.page-tile')).toHaveCount(5);
+    await expect(page.locator('.page-tile')).toHaveCount(5, { timeout: 30_000 });
     // default = all selected
     expect(await page.locator('.page-tile[aria-pressed="true"]').count()).toBe(5);
 
@@ -630,8 +630,8 @@ test.describe('combine pages (n-up)', () => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-combine');
     await dropFixtures(page, ['text-5p.pdf']);
-    await expect(page.locator('.page-tile')).toHaveCount(5);
-    await expect(page.locator('.page-tile img.page-tile-img')).toHaveCount(5);
+    await expect(page.locator('.page-tile')).toHaveCount(5, { timeout: 30_000 });
+    await expect(page.locator('.page-tile img.page-tile-img')).toHaveCount(5, { timeout: 30_000 });
     const w = await page
       .locator('.page-tile img.page-tile-img')
       .first()
@@ -967,6 +967,17 @@ test.describe('compress', () => {
 /* 9. Sign & Fill                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Wait for the sign stage (page N) to attach before interacting with it.
+ * The PDF may still be opening on a slow CI runner; calling `boundingBox()`
+ * first returns null and crashes the test.
+ */
+async function signStage(page: Page, n = 1) {
+  const stage = page.locator(`.stage[data-page="${n}"]`);
+  await expect(stage).toBeAttached({ timeout: 30_000 });
+  return stage;
+}
+
 test.describe('sign & fill', () => {
   test('form panel lists all four fields', async ({ page }) => {
     await page.goto('/pdf-sign');
@@ -1024,7 +1035,7 @@ test.describe('sign & fill', () => {
     await clickButton(page, /^Use this signature$/);
     await expect(page.locator('.sig-preview img')).toHaveCount(1);
     // placing mode starts automatically on "Use this signature"
-    const stage = page.locator('.stage[data-page="1"]');
+    const stage = await signStage(page);
     // element-based click: Playwright scrolls the (tall) stage into view
     // first, so the placement lands inside the viewport.
     const sbox = (await stage.boundingBox())!;
@@ -1051,7 +1062,7 @@ test.describe('sign & fill', () => {
     await clickButton(page, /^Use this signature$/);
     await expect(page.locator('.sig-preview img')).toHaveCount(1);
     // placing mode starts automatically on "Use this signature"
-    const stage = page.locator('.stage[data-page="1"]');
+    const stage = await signStage(page);
     // element-based click: Playwright scrolls the (tall) stage into view
     // first, so the placement lands inside the viewport.
     const sbox = (await stage.boundingBox())!;
@@ -1098,7 +1109,7 @@ test.describe('sign & fill', () => {
     await page.locator('[role=tab]', { hasText: 'Type' }).click();
     await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
     await clickButton(page, /^Use this signature$/);
-    const stage = page.locator('.stage[data-page="1"]');
+    const stage = await signStage(page);
     const sbox = (await stage.boundingBox())!;
     await stage.click({ position: { x: sbox.width / 2, y: sbox.height / 2 } });
     await expect(page.locator('.stamp')).toHaveCount(1);
@@ -1141,7 +1152,7 @@ test.describe('sign & fill', () => {
     await tp.locator('[role=tab]', { hasText: 'Type' }).click();
     await tp.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
     await clickButton(tp, /^Use this signature$/);
-    const stage = tp.locator('.stage[data-page="1"]');
+    const stage = await signStage(tp);
     await stage.click({ position: { x: 80, y: 200 } });
     const stamp = tp.locator('.stamp');
     await expect(stamp).toHaveCount(1);
@@ -1176,7 +1187,7 @@ test.describe('sign & fill', () => {
     await page.locator('[role=tab]', { hasText: 'Type' }).click();
     await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
     await clickButton(page, /^Use this signature$/);
-    const stage = page.locator('.stage[data-page="1"]');
+    const stage = await signStage(page);
     const sbox = (await stage.boundingBox())!;
     // click ~4px inside the bottom-right corner: the stamp must fit on the page
     await stage.click({ position: { x: sbox.width - 4, y: sbox.height - 4 } });
@@ -1216,7 +1227,7 @@ test.describe('sign & fill', () => {
     await page.locator('[role=tab]', { hasText: 'Type' }).click();
     await page.getByPlaceholder(/Alex Rivera/).fill('Alex Rivera');
     await clickButton(page, /^Use this signature$/);
-    const stage = page.locator('.stage[data-page="1"]');
+    const stage = await signStage(page);
     const sbox = (await stage.boundingBox())!;
     await stage.click({ position: { x: sbox.width / 2, y: sbox.height * 0.75 } });
     await expect(page.locator('.stamp')).toHaveCount(1);

@@ -28,6 +28,30 @@ import * as pdfjs from 'pdfjs-dist';
   }
 }
 
+/**
+ * pdfjs v6's getOperatorList()/render path calls
+ * `Map.prototype.getOrInsertComputed()` (Node 26+). CI runs Node 24, which
+ * lacks it, so the Node-side validators below would throw. Patch it in (the
+ * browser has the same shim in src/lib/pdfjs.ts).
+ */
+{
+  const proto = Map.prototype as unknown as {
+    getOrInsertComputed?: (key: unknown, make: () => unknown) => unknown;
+  };
+  if (typeof proto.getOrInsertComputed !== 'function') {
+    proto.getOrInsertComputed = function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+      make: () => unknown,
+    ): unknown {
+      if (this.has(key)) return this.get(key);
+      const value = make();
+      this.set(key, value);
+      return value;
+    };
+  }
+}
+
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
 
 export function fixtureBytes(name: string): Uint8Array {
