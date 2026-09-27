@@ -31,6 +31,11 @@ function contentSecurityPolicy(): string {
     'default-src': ["'self'"],
     'script-src': [
       "'self'",
+      // WebAssembly compilation (the Rust pdfcore module is compiled in the
+      // page, buffer-based) requires this CSP keyword; it allows WASM only
+      // and does not re-enable JS eval. Browsers without it keep the site
+      // working via the pure-JS fallback pipeline.
+      "'wasm-unsafe-eval'",
       ...(nonce ? [nonce] : []),
       // AdSense serves external classic scripts (no nonce) — allow its
       // script hosts for scripts only.

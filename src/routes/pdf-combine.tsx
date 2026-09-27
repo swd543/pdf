@@ -13,7 +13,7 @@ import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell
 import { type CombineOptions, combinePages, GRIDS, sheetCount } from '~/features/pdf-combine/logic';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, readFileBytes } from '~/lib/files';
-import { disposePdf, pdfDocument } from '~/lib/pdfjs';
+import { renderPageThumbs } from '~/lib/thumbs';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -36,6 +36,8 @@ export default function CombinePage() {
 
   const [file, setFile] = createSignal<FileItem | null>(null);
   const [pageCount, setPageCount] = createSignal(0);
+  /** JPEG data URLs for page previews (page 1 first; may be capped). */
+  const [thumbs, setThumbs] = createSignal<string[]>([]);
   /** 1-based page numbers, in ascending order. */
   const [selected, setSelected] = createSignal<number[]>([]);
   const [phase, setPhase] = createSignal<Phase>('empty');
@@ -82,9 +84,10 @@ export default function CombinePage() {
     setProgress({ done: 0, total: 1, label: 'Opening PDF…' });
     try {
       const bytes = await readFileBytes(candidate);
-      const pdf = await pdfDocument(new Uint8Array(bytes));
-      const count = pdf.numPages;
-      disposePdf(pdf);
+      const r = await renderPageThumbs(new Uint8Array(bytes), 110, 200);
+      if (r.error) throw new Error(r.error);
+      const count = r.count;
+      setThumbs(r.thumbs);
       setPageCount(count);
       setSelected(Array.from({ length: count }, (_, i) => i + 1)); // select all by default
       setFile({
@@ -104,6 +107,7 @@ export default function CombinePage() {
   const clear = () => {
     setFile(null);
     setPageCount(0);
+    setThumbs([]);
     setSelected([]);
     setPhase('empty');
     setResult(null);
@@ -309,6 +313,15 @@ export default function CombinePage() {
                         onClick={() => togglePage(n)}
                         disabled={phase() !== 'ready'}
                       >
+                        <Show when={thumbs()[n - 1]}>
+                          <img
+                            class="page-tile-img"
+                            src={thumbs()[n - 1]!}
+                            alt=""
+                            loading="lazy"
+                            draggable={false}
+                          />
+                        </Show>
                         <span class="page-num">{n}</span>
                       </button>
                     )}

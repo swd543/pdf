@@ -261,7 +261,7 @@ test.describe('ordering (merge)', () => {
     expect(await rowNames(page)).toEqual(['text-5p.pdf', 'landscape-1p.pdf', 'text-1p.pdf']);
 
     const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 3 files into one PDF$/),
+      clickButton(page, /^Merge 7 pages into one PDF$/),
     );
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(7); // 5 + 1 + 1
@@ -288,7 +288,7 @@ test.describe('ordering (merge)', () => {
     await page.selectOption('#mergePageSize', 'a4');
 
     const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 3 files into one PDF$/),
+      clickButton(page, /^Merge 3 pages into one PDF$/),
     );
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(3);
@@ -300,13 +300,85 @@ test.describe('ordering (merge)', () => {
     assertClean();
   });
 
-  test('encrypted PDF in merge → friendly error, no download', async ({ page }) => {
+  test('encrypted PDF in merge → flagged on the row, merge disabled, no download', async ({
+    page,
+  }) => {
     await page.goto('/pdf-merge');
     await dropFixtures(page, ['text-1p.pdf', 'encrypted.pdf']);
     await expectRows(page, 2);
-    await clickButton(page, /^Merge 2 files into one PDF$/);
-    await expect(page.locator('.error-card')).toContainText(/password|protected/i);
+    await expect(page.locator('.file-warn').first()).toContainText(/password|protected/i);
+    await expect(page.locator('button.btn-primary')).toBeDisabled();
     await expect(page.locator('.result-card')).toHaveCount(0);
+  });
+
+  test('page strip renders every page as a thumbnail; CTA counts pages', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-5p.pdf', 'text-1p.pdf']);
+    await expect(page.locator('.seq-tile')).toHaveCount(6);
+    const thumbs = page.locator('.seq-tile img.seq-thumb');
+    await expect(thumbs).toHaveCount(6);
+    const w = await thumbs.first().evaluate((el) => el.naturalWidth);
+    expect(w, 'thumbnails actually rendered').toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: 'Merge 6 pages into one PDF' })).toBeEnabled();
+    assertClean();
+  });
+
+  test('page-level reorder (arrows) changes the merged page order', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    await dropFixtures(page, ['text-5p.pdf', 'text-1p.pdf']);
+    await expect(page.locator('.seq-tile')).toHaveCount(6);
+
+    // move page 3 of text-5p to the front (two slots left)
+    const left = page.getByRole('button', { name: 'Move page 3 of text-5p.pdf left' });
+    await left.click();
+    await left.click();
+
+    const pdf = await captureDownload(page, () =>
+      clickButton(page, /^Merge 6 pages into one PDF$/),
+    );
+    const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
+    expect(texts.map((t) => /MARK-(P\d|ONE)/.exec(t)![1])).toEqual([
+      'P3',
+      'P1',
+      'P2',
+      'P4',
+      'P5',
+      'ONE',
+    ]);
+    assertClean();
+  });
+
+  test('page-level drag & drop reorders the strip', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-merge');
+    // [1p, 5p×5] → drag the first tile onto the last → insert before it
+    await dropFixtures(page, ['text-1p.pdf', 'text-5p.pdf']);
+    await expect(page.locator('.seq-tile')).toHaveCount(6);
+
+    // deterministic HTML5 DnD: one shared DataTransfer through the real
+    // handlers (dragstart → dragover → drop → dragend)
+    await page.evaluate(() => {
+      const tiles = document.querySelectorAll('.seq-tile');
+      const dt = new DataTransfer();
+      const src = tiles[0]!;
+      const dst = tiles[5]!;
+      src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+      dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true }));
+      dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
+      src.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }));
+    });
+
+    const pdf = await captureDownload(page, () =>
+      clickButton(page, /^Merge 6 pages into one PDF$/),
+    );
+    const texts = (await pdfInfo(pdf)).pages.map((p) => p.text);
+    expect(texts[0]!).toContain('MARK-P1');
+    // dropped before the last tile: P1..P4, ONE, P5
+    expect(texts[4]!).toContain('MARK-ONE');
+    expect(texts[5]!).toContain('MARK-P5');
+    assertClean();
   });
 });
 
@@ -364,6 +436,20 @@ test.describe('combine pages (n-up)', () => {
     expect(info.pages).toHaveLength(1);
     expect(info.pages[0]!.w).toBeGreaterThan(info.pages[0]!.h);
     expect(Math.round((info.pages[0]!.w / 842) * 10)).toBe(10); // ~842pt wide
+  });
+
+  test('page tiles show rendered thumbnails of the real pages', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-combine');
+    await dropFixtures(page, ['text-5p.pdf']);
+    await expect(page.locator('.page-tile')).toHaveCount(5);
+    await expect(page.locator('.page-tile img.page-tile-img')).toHaveCount(5);
+    const w = await page
+      .locator('.page-tile img.page-tile-img')
+      .first()
+      .evaluate((el) => el.naturalWidth);
+    expect(w, 'thumbnails actually rendered').toBeGreaterThan(0);
+    assertClean();
   });
 
   test('None selected → combine button disabled', async ({ page }) => {
@@ -646,6 +732,45 @@ test.describe('compress', () => {
     assertClean();
   });
 
+  test('auto-picks strong for an image-heavy PDF, with a reason note', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-compress');
+    await dropFixtures(page, ['image-heavy-3p.pdf']);
+    const note = page.locator('.auto-note');
+    await expect(note).toBeVisible();
+    await expect(note).toContainText(/image-heavy/);
+    await expect(page.locator('label.toggle input[type=checkbox]')).toBeChecked();
+    assertClean();
+  });
+
+  test('auto-picks lossless for a text PDF; manual switch clears the note', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-compress');
+    await dropFixtures(page, ['text-5p.pdf']);
+    const note = page.locator('.auto-note');
+    await expect(note).toBeVisible();
+    await expect(note).toContainText(/text\/?vector/);
+    const box = page.locator('label.toggle input[type=checkbox]');
+    await expect(box).not.toBeChecked();
+    await box.check();
+    await expect(note).toHaveCount(0);
+    await expect(box).toBeChecked();
+    assertClean();
+  });
+
+  test('page preview strip renders thumbnails of the first pages', async ({ page }) => {
+    const assertClean = expectClean(page);
+    await page.goto('/pdf-compress');
+    await dropFixtures(page, ['text-5p.pdf']);
+    await expect(page.locator('.thumb-strip img')).toHaveCount(5);
+    const w = await page
+      .locator('.thumb-strip img')
+      .first()
+      .evaluate((el) => el.naturalWidth);
+    expect(w, 'thumbnails actually rendered').toBeGreaterThan(0);
+    assertClean();
+  });
+
   test('quality slider + value do not overlap at 360px', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 });
     await page.goto('/pdf-compress');
@@ -687,8 +812,9 @@ test.describe('sign & fill', () => {
     await page.locator('.field:has(span[title="name"]) input').fill('Ada Lovelace');
     await page.locator('.field:has(span[title="email"]) input').fill('ada@example.com');
     // custom toggle: the visible control is the knob (the input is visually
-    // hidden but real) — clicking the knob is what a user does
-    await page.locator('.field:has(span[title="agree"]) .toggle .knob').click();
+    // hidden but real, layered over the knob) — clicking the input is what
+    // the toggle does for the user
+    await page.locator('.field:has(span[title="agree"]) .toggle input[type="checkbox"]').click();
     await expect(
       page.locator('.field:has(span[title="agree"]) input[type=checkbox]'),
     ).toBeChecked();
@@ -825,7 +951,7 @@ test.describe('resizing mid-flow', () => {
     await page.waitForTimeout(150);
     await noHOverflow(page);
     const pdf = await captureDownload(page, () =>
-      clickButton(page, /^Merge 3 files into one PDF$/),
+      clickButton(page, /^Merge 7 pages into one PDF$/),
     );
     const info = await pdfInfo(pdf);
     expect(info.pages).toHaveLength(7);

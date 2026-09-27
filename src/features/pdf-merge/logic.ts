@@ -44,17 +44,7 @@ export async function mergeFiles(
     await yieldToBrowser();
 
     if (input.kind === 'pdf') {
-      let src: PdfDoc;
-      try {
-        src = await PDFDocument.load(input.bytes, { throwOnInvalidObject: false });
-      } catch {
-        throw new Error(
-          `Couldn't read “${input.name}” — is it a valid PDF? Password-protected PDFs can't be merged.`,
-        );
-      }
-      if (src.getPageCount() === 0) {
-        throw new Error(`“${input.name}” has no pages.`);
-      }
+      const src = await loadSource(input.name, input.bytes);
       const copied = await doc.copyPages(src, src.getPageIndices());
       for (const page of copied) doc.addPage(page);
     } else {
@@ -67,5 +57,76 @@ export async function mergeFiles(
   }
 
   onProgress(inputs.length, inputs.length, 'Assembling PDF');
+  return doc.save();
+}
+
+/** Load a source PDF with friendly errors (shared by both merge APIs). */
+async function loadSource(name: string, bytes: Uint8Array): Promise<PdfDoc> {
+  const { PDFDocument } = await pdflib();
+  let src: PdfDoc;
+  try {
+    src = await PDFDocument.load(bytes, { throwOnInvalidObject: false });
+  } catch {
+    throw new Error(
+      `Couldn't read “${name}” — is it a valid PDF? Password-protected PDFs can't be merged.`,
+    );
+  }
+  if (src.getPageCount() === 0) {
+    throw new Error(`“${name}” has no pages.`);
+  }
+  return src;
+}
+
+/**
+ * A single page slot in the user-arranged sequence (page-level reordering):
+ * either one page of a PDF (1-based `page`) or an image (its own page).
+ */
+export type MergePageRef =
+  | { kind: 'image'; name: string; file: File }
+  | { kind: 'pdf'; name: string; bytes: Uint8Array; page: number };
+
+/**
+ * Merge an explicit *page* sequence — individual pages of the given PDFs in
+ * the exact order the user arranged them, images interleaved freely.
+ * Source documents are loaded once per distinct buffer.
+ */
+export async function mergePages(
+  refs: MergePageRef[],
+  options: MergeOptions,
+  onProgress: ProgressFn,
+): Promise<Uint8Array> {
+  if (refs.length === 0) throw new Error('Nothing to merge — add at least one page.');
+
+  const { PDFDocument } = await pdflib();
+  const doc = await PDFDocument.create();
+  doc.setTitle('Merged document');
+  doc.setProducer('PDFBoogie (in-browser, no upload)');
+
+  let curBytes: Uint8Array | null = null;
+  let curSrc: PdfDoc | null = null;
+
+  for (let i = 0; i < refs.length; i += 1) {
+    const ref = refs[i]!;
+    onProgress(i, refs.length, `Page ${i + 1} of ${refs.length}`);
+    await yieldToBrowser();
+
+    if (ref.kind === 'image') {
+      const prep = await prepareImage(ref.file);
+      await addImagePage(doc, prep, options);
+    } else {
+      if (curSrc === null || curBytes !== ref.bytes) {
+        curSrc = await loadSource(ref.name, ref.bytes);
+        curBytes = ref.bytes;
+      }
+      const n = curSrc.getPageCount();
+      if (!Number.isInteger(ref.page) || ref.page < 1 || ref.page > n) {
+        throw new Error(`Page ${ref.page} of “${ref.name}” doesn't exist.`);
+      }
+      const [page] = await doc.copyPages(curSrc, [ref.page - 1]);
+      doc.addPage(page);
+    }
+  }
+
+  onProgress(refs.length, refs.length, 'Assembling PDF');
   return doc.save();
 }

@@ -95,7 +95,7 @@ await flow('merge 2 PDFs', async (page) => {
     .locator('input[type="file"]')
     .first()
     .setInputFiles([fx('text-5p.pdf'), fx('text-1p.pdf')]);
-  const cta = page.getByRole('button', { name: 'Merge 2 files into one PDF' });
+  const cta = page.getByRole('button', { name: 'Merge 6 pages into one PDF' });
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 30000 });
   await cta.click();
@@ -113,6 +113,18 @@ await flow('compress lossless (1.5 MB image PDF)', async (page) => {
   await page.goto(BASE + '/pdf-compress', { waitUntil: 'networkidle' });
   await page.locator('input[type="file"]').first().setInputFiles(fx('image-heavy-3p.pdf'));
   const cta = page.getByRole('button', { name: 'Compress (lossless)' });
+  // regression: the mode toggle's knob must not overlay its label text
+  const toggleOk = await page.evaluate(() => {
+    const label = document.querySelector('.toggle');
+    if (!label) return false;
+    const knob = label.querySelector('.knob').getBoundingClientRect();
+    const text = label.querySelector('span:last-child').getBoundingClientRect();
+    return (
+      getComputedStyle(label).display === 'inline-flex' &&
+      knob.width > 20 &&
+      text.x >= knob.right - 1
+    );
+  });
   await cta.waitFor({ state: 'visible', timeout: 15000 });
   const dl = page.waitForEvent('download', { timeout: 60000 });
   await cta.click();
@@ -120,13 +132,20 @@ await flow('compress lossless (1.5 MB image PDF)', async (page) => {
   await (await dl).saveAs(p);
   const b = readFileSync(p);
   const n = await pageCount(b);
+  // CSP must permit the WASM core (was silently falling back to JS before)
+  const wasmBadge = await page.locator('text=Rust/WASM core').count();
+  const jsBadge = await page.locator('text=JS fallback').count();
   const saved = (100 - (100 * b.length) / input.length).toFixed(1);
-  if (isPdf(b) && n === 3 && b.length <= input.length)
+  if (isPdf(b) && n === 3 && b.length <= input.length && wasmBadge > 0 && jsBadge === 0 && toggleOk)
     ok(
       'compress-lossless',
       `3 pages, ${b.length === input.length ? 'same size (JPEG-dominated — expected, lossless)' : `${saved}% smaller`}`,
     );
-  else fail('compress-lossless', `valid=${isPdf(b)} pages=${n} in=${input.length} out=${b.length}`);
+  else
+    fail(
+      'compress-lossless',
+      `valid=${isPdf(b)} pages=${n} wasm=${wasmBadge} js=${jsBadge} toggle=${toggleOk} in=${input.length} out=${b.length}`,
+    );
 });
 
 /* 3. Compress strong ------------------------------------------------------ */

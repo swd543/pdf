@@ -55,7 +55,7 @@ export const routeMeta: Record<string, RouteMeta> = {
   '/pdf-merge': {
     title: 'Merge PDF Online — Combine PDFs & JPGs (Secure, Private) | PDFBoogie',
     description:
-      'Merge multiple PDF files — and JPG/PNG images — into a single PDF securely in your browser. Reorder pages, ' +
+      'Merge multiple PDF files — and JPG/PNG images — into a single PDF securely in your browser. Reorder individual pages, ' +
       'no upload, no watermark. 100% client-side merge.',
     image: ogImage,
   },
@@ -120,6 +120,10 @@ export function jsonLdFor(path: string): object[] {
         q: 'What does strong compression do differently?',
         a: 'Strong mode re-renders each page as an optimized image. It often compresses more aggressively, but text is no longer selectable in the result.',
       },
+      {
+        q: 'How do I know which mode to use?',
+        a: 'PDFBoogie inspects the document and auto-selects a sensible default: image-heavy files (scans, photo documents) usually benefit from strong mode, while text and vector documents are kept lossless so text stays selectable. You can always switch modes manually.',
+      },
     ],
     '/image-to-pdf': [
       {
@@ -161,6 +165,10 @@ export function jsonLdFor(path: string): object[] {
       {
         q: 'Is the content quality preserved when merging?',
         a: 'PDF pages are copied exactly — vectors and text stay selectable. Images keep their original encoding when possible (JPEG fast path).',
+      },
+      {
+        q: 'Can I reorder individual pages before merging?',
+        a: 'Yes. Every page of every file is rendered as a thumbnail in a reorderable strip — drag tiles or use the arrow buttons to arrange pages individually, or move whole files up and down. The merge follows the strip exactly.',
       },
     ],
     '/pdf-combine': [

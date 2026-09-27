@@ -1,12 +1,23 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
-import { mergeFiles } from './logic';
+import { mergeFiles, mergePages } from './logic';
 
 async function pdfWithSize(w: number, h: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([w, h]);
   page.drawText(`page ${w}×${h}`, { x: 50, y: 100, size: 12, font });
+  return new Uint8Array(await doc.save());
+}
+
+/** Multi-page PDF with a distinct size per page — sizes prove ordering. */
+async function pdfWithPages(sizes: [number, number][]): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const [w, h] of sizes) {
+    const page = doc.addPage([w, h]);
+    page.drawText(`page ${w}×${h}`, { x: 50, y: 100, size: 12, font });
+  }
   return new Uint8Array(await doc.save());
 }
 
@@ -82,5 +93,80 @@ describe('mergeFiles', () => {
         () => {},
       ),
     ).rejects.toThrow(/bad\.pdf/);
+  });
+});
+
+describe('mergePages (page-level reordering)', () => {
+  it('copies individual pages in the exact arranged order, across files', async () => {
+    const a = await pdfWithPages([
+      [500, 600], // a.1
+      [700, 400], // a.2
+      [300, 300], // a.3
+    ]);
+    const b = await pdfWithPages([[800, 200]]); // b.1
+
+    // arranged: a.3, b.1, a.1, a.2
+    const out = await mergePages(
+      [
+        { kind: 'pdf', name: 'a.pdf', bytes: a, page: 3 },
+        { kind: 'pdf', name: 'b.pdf', bytes: b, page: 1 },
+        { kind: 'pdf', name: 'a.pdf', bytes: a, page: 1 },
+        { kind: 'pdf', name: 'a.pdf', bytes: a, page: 2 },
+      ],
+      { pageSize: 'a4', marginPt: 0 },
+      () => {},
+    );
+
+    const doc = await PDFDocument.load(out);
+    const sizes = doc.getPages().map((p) => [p.getWidth(), p.getHeight()]);
+    expect(sizes).toEqual([
+      [300, 300],
+      [800, 200],
+      [500, 600],
+      [700, 400],
+    ]);
+  });
+
+  it('interleaves images between PDF pages', async () => {
+    const a = await pdfWithPages([
+      [500, 600],
+      [700, 400],
+    ]);
+    const jpeg = new File([syntheticJpeg()], 'photo.jpg', { type: 'image/jpeg' });
+
+    const out = await mergePages(
+      [
+        { kind: 'pdf', name: 'a.pdf', bytes: a, page: 1 },
+        { kind: 'image', name: 'photo.jpg', file: jpeg },
+        { kind: 'pdf', name: 'a.pdf', bytes: a, page: 2 },
+      ],
+      { pageSize: 'a4', marginPt: 0 },
+      () => {},
+    );
+
+    const doc = await PDFDocument.load(out);
+    const sizes = doc.getPages().map((p) => [p.getWidth(), p.getHeight()]);
+    expect(sizes).toEqual([
+      [500, 600],
+      [595.28, 841.89], // A4 for the image
+      [700, 400],
+    ]);
+  });
+
+  it('rejects a page number outside the source', async () => {
+    const a = await pdfWithPages([[500, 600]]);
+    await expect(
+      mergePages(
+        [{ kind: 'pdf', name: 'a.pdf', bytes: a, page: 9 }],
+        { pageSize: 'a4', marginPt: 0 },
+        () => {},
+      ),
+    ).rejects.toThrow(/a\.pdf/);
+  });
+
+  it('requires at least one page', async () => {
+    await expect(mergePages([], { pageSize: 'a4', marginPt: 0 }, () => {})).rejects.toThrow(
+      /Nothing to merge/,
+    );
   });
 });

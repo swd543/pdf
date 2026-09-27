@@ -7,7 +7,7 @@
  */
 
 import { Meta, Title } from '@solidjs/meta';
-import { createSignal, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
 import { AlertIcon, DownloadIcon, SpinnerIcon, TrashIcon } from '~/components/Icons';
 import { DropZone, ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
@@ -15,10 +15,12 @@ import {
   type CompressMode,
   type CompressOutcome,
   compressPdf,
+  recommendMode,
 } from '~/features/pdf-compress/logic';
 import type { DpiOption } from '~/features/pdf-to-image/logic';
 import { saveBlob } from '~/lib/download';
 import { cleanFileName, humanSize, percentSaved, readFileBytes } from '~/lib/files';
+import { renderPageThumbs } from '~/lib/thumbs';
 import { type FileItem, isPdfFile, type ProgressFn } from '~/lib/types';
 import { expandAds } from '~/site/ads';
 import { siteUrl } from '~/site/config';
@@ -36,6 +38,12 @@ export default function PdfCompressPage() {
   const [result, setResult] = createSignal<(CompressOutcome & { name: string }) | null>(null);
 
   const [mode, setMode] = createSignal<CompressMode>('lossless');
+  /** Set when the user switches the mode manually — stops auto-picks. */
+  const [modeTouched, setModeTouched] = createSignal(false);
+  /** Why the current mode was auto-picked (cleared on manual change). */
+  const [autoNote, setAutoNote] = createSignal('');
+  const [thumbs, setThumbs] = createSignal<string[]>([]);
+  const [pageCount, setPageCount] = createSignal(0);
   const [quality, setQuality] = createSignal(78);
   const [dpi, setDpi] = createSignal(150);
 
@@ -56,6 +64,34 @@ export default function PdfCompressPage() {
       file: candidate,
     });
     setPhase('ready');
+    setModeTouched(false);
+    setAutoNote('');
+    setThumbs([]);
+    setPageCount(0);
+
+    // Best-effort analysis: preview thumbnails + a mode recommendation
+    // (image-heavy documents → strong, text/vector → lossless). Never
+    // blocks the tool; the user can always switch modes manually.
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await readFileBytes(candidate));
+        const r = await renderPageThumbs(bytes.slice(), 110, 12);
+        if (file()?.file !== candidate) return; // replaced by another file
+        if (r.error) {
+          setAutoNote(`couldn't analyze ${candidate.name} (${r.error})`);
+          return;
+        }
+        setPageCount(r.count);
+        setThumbs(r.thumbs);
+        const rec = recommendMode(bytes, r.count);
+        if (!modeTouched()) {
+          setMode(rec.mode);
+          setAutoNote(rec.reason);
+        }
+      } catch {
+        // best-effort only — the tool works either way
+      }
+    })();
   };
 
   const clear = () => {
@@ -63,6 +99,10 @@ export default function PdfCompressPage() {
     setPhase('empty');
     setResult(null);
     setError('');
+    setModeTouched(false);
+    setAutoNote('');
+    setThumbs([]);
+    setPageCount(0);
   };
 
   const process = async () => {
@@ -126,7 +166,7 @@ export default function PdfCompressPage() {
 
       <ToolPage
         title="Compress PDF"
-        lede="Shrink a PDF without uploading it. Lossless mode optimizes the file's internal structure; strong mode re-renders pages for maximum size reduction."
+        lede="Shrink a PDF without uploading it. A sensible mode is auto-picked for each file — lossless keeps text selectable, strong re-renders pages for maximum size reduction."
         related={[
           { path: '/image-to-pdf', label: 'Image to PDF' },
           { path: '/pdf-to-image', label: 'PDF to image' },
@@ -140,11 +180,20 @@ export default function PdfCompressPage() {
                 <div class="panel-body">
                   <div class="opt-group">
                     <span class="opt-label">Mode</span>
+                    <Show when={autoNote()}>
+                      <p class="opt-hint auto-note" style="margin: 0 0 0.45rem">
+                        Auto-selected {mode() === 'strong' ? 'strong' : 'lossless'} — {autoNote()}
+                      </p>
+                    </Show>
                     <label class="toggle" style="margin-bottom: 0.6rem">
                       <input
                         type="checkbox"
                         checked={mode() === 'strong'}
-                        onChange={(e) => setMode(e.currentTarget.checked ? 'strong' : 'lossless')}
+                        onChange={(e) => {
+                          setMode(e.currentTarget.checked ? 'strong' : 'lossless');
+                          setModeTouched(true);
+                          setAutoNote('');
+                        }}
                         disabled={phase() === 'processing'}
                       />
                       <span class="knob" />
@@ -189,7 +238,7 @@ export default function PdfCompressPage() {
               </div>
               <div class="panel">
                 <div class="panel-body">
-                  <h3>Honest compression</h3>
+                  <h3>No surprises</h3>
                   <p style="font-size: 0.88rem; color: var(--ink-muted); margin: 0">
                     No secret re-encoding of your text, no watermarks, no “pro” tier. If a mode
                     can't make your file smaller, we'll tell you instead of pretending.
@@ -216,7 +265,12 @@ export default function PdfCompressPage() {
                   <span class="file-name" title={file()!.name}>
                     {file()!.name}
                   </span>
-                  <span class="file-size">{humanSize(file()!.size)}</span>
+                  <span class="file-size">
+                    {humanSize(file()!.size)}
+                    {pageCount() > 0
+                      ? ` · ${pageCount()} ${pageCount() === 1 ? 'page' : 'pages'}`
+                      : ''}
+                  </span>
                   <span class="file-actions">
                     <button
                       type="button"
@@ -229,6 +283,24 @@ export default function PdfCompressPage() {
                     </button>
                   </span>
                 </div>
+                <Show when={thumbs().length > 0}>
+                  <div class="thumb-strip">
+                    <For each={thumbs()}>
+                      {(t, i) => (
+                        <img
+                          class="thumb-strip-img"
+                          src={t}
+                          alt={`Page ${i() + 1}`}
+                          loading="lazy"
+                          draggable={false}
+                        />
+                      )}
+                    </For>
+                    {pageCount() > thumbs().length && (
+                      <span class="thumb-strip-more">+{pageCount() - thumbs().length} more</span>
+                    )}
+                  </div>
+                </Show>
               </Show>
               <Show when={error()}>
                 <div class="error-card" role="alert">

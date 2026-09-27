@@ -532,6 +532,15 @@ code {
   margin-bottom: 0.45rem;
 }
 
+/* A switch (`.toggle`) inside an opt-group must keep its inline-flex layout
+   — the rule above would flatten it to block (higher specificity), which
+   drops the knob to zero width and lets its circle overlay the label text. */
+.opt-group > .toggle {
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
 .opt-group .opt-hint {
   font-size: 0.78rem;
   color: var(--ink-faint);
@@ -637,13 +646,19 @@ input[type="range"] {
   gap: 0.55rem;
   cursor: pointer;
   font-size: 0.9rem;
+  position: relative;
 }
 
 .toggle input {
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 20px;
+  margin: 0;
   opacity: 0;
-  width: 1px;
-  height: 1px;
+  cursor: pointer;
+  z-index: 1;
 }
 
 .toggle .knob {
@@ -1163,6 +1178,200 @@ input[type="range"] {
 }
 .page-tile[aria-pressed="false"] {
   opacity: 0.4;
+}
+
+/* combine: page thumbnail inside a tile (number stays below) */
+.page-tile .page-tile-img {
+  max-height: 240px;
+  max-width: 100%;
+  width: auto;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+/* merge: page-order strip ------------------------------------------------ */
+.seq-wrap {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.seq-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.seq-count {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.page-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+  margin: -0.25rem;
+  scroll-snap-type: x proximity;
+  list-style: none;
+}
+
+.page-strip > li {
+  margin: 0;
+}
+
+.seq-tile {
+  flex: none;
+  width: 118px;
+  scroll-snap-align: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--bg);
+  padding: 0.4rem;
+  position: relative;
+  transition:
+    border-color 0.12s ease,
+    opacity 0.12s ease;
+  user-select: none;
+  cursor: grab;
+}
+
+.seq-tile:hover {
+  border-color: var(--line-strong);
+}
+
+.seq-tile.dragging {
+  opacity: 0.45;
+}
+
+.seq-tile.drag-over {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.seq-thumb {
+  width: 100%;
+  height: auto;
+  max-height: 140px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+}
+
+.seq-thumb-blank {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-inset, color-mix(in srgb, var(--line) 18%, transparent));
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.seq-chip {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  background: color-mix(in srgb, var(--ink) 78%, transparent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.seq-src {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seq-move {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.4rem;
+  display: flex;
+  gap: 0.2rem;
+}
+
+.seq-move button {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.seq-move button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.seq-move button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.seq-tile-loading {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* compress: read-only page preview strip */
+.thumb-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+  margin: 0 0 0.5rem;
+}
+
+.thumb-strip-img {
+  flex: none;
+  height: 54px;
+  width: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.thumb-strip-more {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+
+/* compress: auto-mode note + merge: file warning */
+.auto-note {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+.file-warn {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
 }
 
 /* donation row (footer) */

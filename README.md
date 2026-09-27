@@ -7,11 +7,14 @@ converting, signing — runs entirely on your machine. Your documents are never
 uploaded anywhere: there is no backend to upload to.
 
 - **Compress PDF** — lossless re-save (custom Rust/WASM core) or a strong
-  visual-quality mode that rebuilds pages as optimized images.
-- **Merge PDF** — combine PDFs (and images) into one document, reorder with
-  up/down controls.
+  visual-quality mode that rebuilds pages as optimized images. A sensible
+  mode is auto-picked per document (image-heavy → strong, text/vector →
+  lossless) and page previews are rendered before you commit.
+- **Merge PDF** — combine PDFs (and images) into one document. Every page is
+  rendered as a thumbnail in a reorderable strip — drag tiles or use the
+  arrows to arrange pages individually, or move whole files up and down.
 - **Combine pages (n-up)** — place 2 / 4 / 6 / 9 pages per sheet, portrait or
-  landscape, like a home-print 2-up layout.
+  landscape, like a home-print 2-up layout, with page previews.
 - **Image → PDF** — turn PNG/JPEG/WebP images into a PDF, one image per page.
 - **PDF → Image** — export pages as PNG, JPEG or WebP (any DPI), single file or
   ZIP.
