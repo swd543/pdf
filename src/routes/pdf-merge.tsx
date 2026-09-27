@@ -63,6 +63,9 @@ interface Item extends FileItem {
   imageHeight?: number;
   /** Set when the PDF couldn't be rendered (e.g. password-protected). */
   thumbError?: string;
+  /** Set when the PDF opened but its page *previews* couldn't be rasterized
+   *  on this engine (blank tiles). The file still merges fine. */
+  previewDegraded?: boolean;
 }
 
 /** One page slot in the user-arranged global sequence. */
@@ -439,7 +442,14 @@ export default function MergePage() {
       // File may have been removed while loading.
       if (!itemOf(id)) continue;
       thumbBudget -= r.thumbs.length;
-      patchItem(id, { pageCount: r.count, thumbs: r.thumbs });
+      // The document opened (page count is known); only the *previews* may
+      // have failed to rasterize on this engine. Keep the file usable and
+      // flag the degradation so the strip can explain the blank tiles.
+      patchItem(id, {
+        pageCount: r.count,
+        thumbs: r.thumbs,
+        previewDegraded: (r.renderFailures ?? 0) > 0,
+      });
       const pages: Seq[] = Array.from({ length: r.count }, (_, i) => ({
         id: `${id}::${i + 1}`,
         file: id,
@@ -530,6 +540,9 @@ export default function MergePage() {
   // must not show a perpetual "loading pages…" tile for them.
   const loadingFiles = () =>
     items().some((i) => i.kind === 'pdf' && i.pageCount === 0 && !i.thumbError);
+  // A file opened but its page *previews* couldn't be rasterized on this
+  // engine (tiles show page numbers only). Merging is unaffected.
+  const previewDegraded = () => items().some((i) => i.previewDegraded);
 
   return (
     <>
@@ -643,6 +656,15 @@ export default function MergePage() {
                 imagePreviewStyle={imagePreviewStyle}
                 disabled={() => phase() !== 'ready'}
               />
+              <Show when={previewDegraded()}>
+                <div class="warn-card" role="status">
+                  <AlertIcon />
+                  <span>
+                    Page previews can't be drawn in this browser, so the tiles show page numbers
+                    only. Merging isn't affected.
+                  </span>
+                </div>
+              </Show>
               <Show when={error()}>
                 <div class="error-card" role="alert">
                   <AlertIcon />

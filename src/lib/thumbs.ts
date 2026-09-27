@@ -19,6 +19,12 @@ export interface PageThumbs {
   thumbs: string[];
   /** Rendering failed, or the document exceeds the caller's page limit. */
   error?: string;
+  /** How many pages' canvas render/encode failed (0 = all pages rendered).
+   *  Distinct from `error`: the document opened fine, only the *previews*
+   *  are missing (e.g. a mobile engine that can't rasterize them). */
+  renderFailures?: number;
+  /** Diagnostic: first per-page failure, e.g. "render: ..." / "encode: ...". */
+  firstRenderError?: string;
 }
 
 export interface PageThumbOptions {
@@ -51,11 +57,18 @@ export async function renderPageThumbsFrom(
   const n = Math.min(count, maxThumbs);
   const thumbs: string[] = new Array(n).fill('');
 
+  let renderFailures = 0;
+  let firstRenderError: string | undefined;
+
   for (let i = 1; i <= n; i += 1) {
     let page: import('pdfjs-dist').PDFPageProxy | undefined;
     let canvas: HTMLCanvasElement | null = null;
+    // Which step is in flight — so a failure names its cause (a mobile
+    // engine often only surfaces the problem here, in the console).
+    let stage = 'open page';
     try {
       page = await pdf.getPage(i);
+      stage = 'layout';
       const base = page.getViewport({ scale: 1 });
       const scale = targetWidth / base.width;
       const requested = page.getViewport({ scale });
@@ -64,16 +77,26 @@ export async function renderPageThumbsFrom(
       const viewport = page.getViewport({
         scale: bounded.reduced ? (scale * bounded.width) / requested.width : scale,
       });
+      stage = 'canvas';
       canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.ceil(viewport.width));
       canvas.height = Math.max(1, Math.ceil(viewport.height));
       const ctx = canvas.getContext('2d');
-      if (ctx) {
-        await page.render({ canvas, viewport }).promise;
-        thumbs[i - 1] = canvas.toDataURL('image/jpeg', 0.72);
+      if (!ctx) throw new Error('2D canvas context is unavailable');
+      stage = 'render';
+      await page.render({ canvas, viewport }).promise;
+      stage = 'encode';
+      thumbs[i - 1] = canvas.toDataURL('image/jpeg', 0.72);
+    } catch (err) {
+      // A single bad page must not blank the whole document — keep a blank
+      // slot (the tile still shows its page number) — but never swallow the
+      // cause: on some mobile browsers this is the only place it surfaces.
+      renderFailures += 1;
+      if (firstRenderError === undefined) {
+        const msg = err instanceof Error ? err.message : String(err);
+        firstRenderError = `${stage}: ${msg}`;
+        console.error(`[pdfboogie] thumbnail page ${i} failed at "${stage}"`, err);
       }
-    } catch {
-      // Leave a blank slot — the tile still shows its page number.
     } finally {
       page?.cleanup();
       if (canvas) {
@@ -84,7 +107,7 @@ export async function renderPageThumbsFrom(
     await yieldToBrowser();
   }
 
-  return { count, thumbs };
+  return { count, thumbs, renderFailures, firstRenderError };
 }
 
 /**

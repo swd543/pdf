@@ -25,6 +25,32 @@ type PdfjsLib = typeof import('pdfjs-dist');
   }
 }
 
+/**
+ * pdfjs 6's render path (page.render / getOperatorList) calls
+ * `Map.prototype.getOrInsertComputed()` — a recent V8/Node API (Node 26+)
+ * that older engines (Node 24, some mobile browsers such as Samsung
+ * Internet) lack. Without it every page.render() throws
+ * "getOrInsertComputed is not a function" and pages render blank. Patch it
+ * in once, before pdfjs is imported (same approach as the toHex shim above).
+ */
+{
+  const proto = Map.prototype as unknown as {
+    getOrInsertComputed?: (key: unknown, make: () => unknown) => unknown;
+  };
+  if (typeof proto.getOrInsertComputed !== 'function') {
+    proto.getOrInsertComputed = function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+      make: () => unknown,
+    ): unknown {
+      if (this.has(key)) return this.get(key);
+      const value = make();
+      this.set(key, value);
+      return value;
+    };
+  }
+}
+
 let libPromise: Promise<PdfjsLib> | null = null;
 
 export function pdfjs(): Promise<PdfjsLib> {

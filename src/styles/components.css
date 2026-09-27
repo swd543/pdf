@@ -834,6 +834,27 @@ input[type="range"] {
   margin-top: 2px;
 }
 
+/* Neutral "works, but previews unavailable" notice (not a hard error). */
+.warn-card {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.9rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-s);
+  margin-top: 1rem;
+}
+
+.warn-card svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page preview (pdf-to-image, sign)                                  */
 /* ------------------------------------------------------------------ */
