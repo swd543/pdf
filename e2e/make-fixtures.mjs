@@ -211,29 +211,29 @@ console.log('writing fixtures →', OUT);
     const src = path.join(OUT, '.tmp-enc-src.pdf');
     fs.writeFileSync(src, await doc.save());
     await new Promise((res, rej) => {
-    execFile(
-      'gs',
-      [
-        '-dNOPAUSE',
-        '-dBATCH',
-        '-sDEVICE=pdfwrite',
-        '-sUserPassword=secret123',
-        '-sOwnerPassword=owner123',
-        '-q',
-        '-o',
-        out,
-        src,
-      ],
-      (e) =>
-        e
-          ? rej(
-              new Error(
-                `Ghostscript (gs) is required to build the encrypted fixture: ${e.message}`,
-              ),
-            )
-          : res(),
-    );
-  });
+      execFile(
+        'gs',
+        [
+          '-dNOPAUSE',
+          '-dBATCH',
+          '-sDEVICE=pdfwrite',
+          '-sUserPassword=secret123',
+          '-sOwnerPassword=owner123',
+          '-q',
+          '-o',
+          out,
+          src,
+        ],
+        (e) =>
+          e
+            ? rej(
+                new Error(
+                  `Ghostscript (gs) is required to build the encrypted fixture: ${e.message}`,
+                ),
+              )
+            : res(),
+      );
+    });
     fs.rmSync(src, { force: true });
     console.log(
       `  ${'encrypted.pdf'.padEnd(20)} ${String(fs.statSync(out).size).padStart(8)} B  (gs-encrypted)`,
