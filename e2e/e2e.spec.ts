@@ -141,6 +141,30 @@ test.describe('site smoke', () => {
     const body = await sitemap.text();
     expect(body).toContain('/pdf-to-doc');
   });
+
+  test('ad slot: hidden until first op, then pixel-art thank-you placeholder (ad-free build)', async ({
+    page,
+  }) => {
+    // The placeholder asset ships (local file, no external requests).
+    expect((await page.request.get('/thank-you.gif')).status()).toBe(200);
+
+    await page.goto('/pdf-compress');
+    const slot = page.locator('.ad-slot[data-ad-slot="tool-bottom"]');
+    // Idle: the slot is present but collapsed (zero footprint).
+    await expect(slot).toHaveAttribute('data-expanded', 'false');
+
+    await dropFixtures(page, ['text-5p.pdf']);
+    await processAndDownload(page, /Compress \(lossless\)/);
+
+    // First operation done: the slot expands and shows the pixel-art
+    // placeholder (no AdSense client id in this build).
+    await expect(slot).toHaveAttribute('data-expanded', 'true');
+    const thanks = slot.locator('img.ad-thanks');
+    await expect(thanks).toBeVisible();
+    expect(await thanks.getAttribute('src')).toMatch(/thank-you\.gif$/);
+    // No AdSense network request may have been made.
+    expect(await thanks.getAttribute('alt')).toBe('Thank you for using PDFBoogie');
+  });
 });
 
 /* ------------------------------------------------------------------ */

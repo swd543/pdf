@@ -2,9 +2,11 @@
  * AdSlot — the single integration point for Google AdSense.
  *
  * Behaviour (non-intrusive by design):
- *  - No publisher id configured (`VITE_ADSENSE_CLIENT` empty): renders an
- *    empty container (zero visual footprint, no external requests). In dev,
- *    a subtle chip marks the slot so the layout is visible.
+ *  - No publisher id configured (`VITE_ADSENSE_CLIENT` empty): the slot is
+ *    hidden until the visitor's first operation; after that it shows a small
+ *    pixel-art "thank you" placeholder (public/thank-you.gif) — the same
+ *    timing and footprint the ad will have. Local asset only, no external
+ *    requests. In dev, a subtle chip marks the slot so the layout is visible.
  *  - Publisher id set: the slot stays COLLAPSED (no script, no request,
  *    zero height) until the visitor's first operation starts. `expandAds()`
  *    (src/site/ads.ts) is called by the tools when processing begins —
@@ -48,6 +50,9 @@ export function AdSlot(props: { slot?: string; className?: string }) {
   const enabled = site.adsenseClient !== '';
   // Collapsed until the first operation starts; persists once expanded.
   const visible = () => adsExpanded();
+  // Pre-AdSense placeholder: the pixel-art thank-you appears exactly where
+  // the ad will appear (after the first operation). AdSense set → real ad.
+  const showThanks = () => !enabled && visible() && !import.meta.env.DEV;
   let pushed = false;
 
   // Load the ad only after expansion — never before the visitor acts.
@@ -77,6 +82,16 @@ export function AdSlot(props: { slot?: string; className?: string }) {
     >
       {enabled && visible() ? (
         <ins class="adsbygoogle" style="display: block" />
+      ) : showThanks() ? (
+        <img
+          class="ad-thanks"
+          src={`${import.meta.env.BASE_URL}thank-you.gif`}
+          alt="Thank you for using PDFBoogie"
+          width="192"
+          height="72"
+          loading="lazy"
+          draggable={false}
+        />
       ) : import.meta.env.DEV ? (
         <span class="ad-dev">ad slot · {props.slot ?? 'default'}</span>
       ) : null}
