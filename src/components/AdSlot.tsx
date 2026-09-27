@@ -3,10 +3,11 @@
  *
  * Behaviour (non-intrusive by design):
  *  - No publisher id configured (`VITE_ADSENSE_CLIENT` empty): the slot is
- *    hidden until the visitor's first operation; after that it shows a small
- *    pixel-art "thank you" placeholder (public/thank-you.gif) — the same
- *    timing and footprint the ad will have. Local asset only, no external
- *    requests. In dev, a subtle chip marks the slot so the layout is visible.
+ *    hidden until the visitor's first operation; after that it shows a
+ *    pixel-art "thank you" banner (public/thank-you.gif, AdSense-leaderboard
+ *    proportions) — the same timing and footprint the ad will have. Local
+ *    asset only, no external requests. In dev, a subtle chip marks the slot
+ *    so the layout is visible.
  *  - Publisher id set: the slot stays COLLAPSED (no script, no request,
  *    zero height) until the visitor's first operation starts. `expandAds()`
  *    (src/site/ads.ts) is called by the tools when processing begins —
@@ -87,8 +88,8 @@ export function AdSlot(props: { slot?: string; className?: string }) {
           class="ad-thanks"
           src={`${import.meta.env.BASE_URL}thank-you.gif`}
           alt="Thank you for using PDFBoogie"
-          width="192"
-          height="72"
+          width="720"
+          height="90"
           loading="lazy"
           draggable={false}
         />

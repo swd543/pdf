@@ -989,11 +989,14 @@ input[type="range"] {
   padding: 0.4rem 0.9rem;
 }
 
-/* Pre-AdSense placeholder: pixel-art thank-you where the ad will appear.
-   Self-contained (own background + border) so it reads on both themes. */
+/* Pre-AdSense placeholder: pixel-art thank-you where the ad will appear
+   (classic leaderboard proportions). Self-contained (own background +
+   border) so it reads on both themes. Scales down on narrow viewports. */
 .ad-slot .ad-thanks {
-  width: 192px;
-  height: 72px;
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
   image-rendering: pixelated;
   border-radius: 8px;
   box-shadow: var(--shadow-1);
