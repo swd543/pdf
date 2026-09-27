@@ -1,30 +1,41 @@
 # Auto-merge Dependabot PRs once the full CI suite is green on the PR head.
 #
-# Trigger model:
-#   - check_run:completed — fires as each CI job finishes on a PR; merges as
-#     soon as the last required check passes (no polling delay).
-#   - schedule — a sweep as a backstop in case a completion event is missed.
+# Trigger model (in order of reliability, learned the hard way):
+#   - workflow_run (CI & Deploy completed) — fires the moment a CI run for a
+#     PR finishes; evaluates only that PR's branch.
+#   - schedule — a sweep over all open Dependabot PRs as a backstop.
+#   - workflow_dispatch — manual trigger.
+# (The `check_run` event proved unreliable for this purpose and was dropped.)
 #
 # Merge gate (all of):
-#   - at least one check ran on the PR head SHA (a broken workflow file
-#     produces no checks and therefore never merges),
-#   - every check on that SHA is completed with success/skipped/neutral
-#     (the Pages deploy job is intentionally skipped on PRs),
-#   - no pending or failing checks,
-#   - the PR is open, not a draft and mergeable (no conflicts).
+#   - the PR's status rollup is non-empty, every check is completed with
+#     success/skipped/neutral, and at least one is success (the rollup covers
+#     "Build Rust/WASM core" + "Typecheck, unit tests, E2E" + the intentionally
+#     skipped Pages deploy job on PRs);
+#   - the PR is open, not a draft and mergeable (no conflicts);
+#   - fallback: if the rollup is empty, the Checks API on the head SHA is
+#     consulted instead.
+# A PR whose CI failed or never ran (e.g. a bad action version breaking the
+# workflow file) is left open.
 #
 # Merge method: squash, so the history keeps one "Bump X from A to B" commit.
+# The workflow's GITHUB_TOKEN carries the `workflow` scope, so it can also
+# merge Dependabot PRs that touch .github/workflows/* (a limitation of
+# personal tokens).
 name: Dependabot auto-merge
 
 on:
-  check_run:
+  workflow_run:
+    workflows: ["CI & Deploy"]
     types: [completed]
   schedule:
     - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
   checks: read
+  actions: read
 
 concurrency:
   group: dependabot-auto-merge
@@ -34,60 +45,87 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@v9
+      - uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
+            const GOOD = ['success', 'skipped', 'neutral'];
 
-            // check_run events: only sweep when the finished check belongs to
-            // a PR (push runs on main etc. must not trigger merge logic).
-            if (
-              context.eventName !== 'schedule' &&
-              (!context.payload.check_run?.pull_requests ||
-                context.payload.check_run.pull_requests.length === 0)
-            ) {
-              core.info('check_run is not attached to a PR; nothing to do');
-              return;
+            // Which PRs to evaluate: the completed CI run's PR (workflow_run)
+            // or every open Dependabot PR (schedule / dispatch).
+            let candidates = [];
+            if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run;
+              if (run.event !== 'pull_request') {
+                core.info(`CI run finished for a ${run.event} (not a PR); nothing to do`);
+                return;
+              }
+              const open = (await github.rest.pulls.list({ owner, repo, state: 'open' })).data;
+              const pr = open.find((p) => p.head.ref === run.head_branch);
+              if (!pr) {
+                core.info(`no open PR for branch ${run.head_branch}; nothing to do`);
+                return;
+              }
+              candidates = [pr];
+            } else {
+              const open = (await github.rest.pulls.list({ owner, repo, state: 'open' })).data;
+              candidates = open.filter((p) => p.user?.login === 'dependabot[bot]');
+              if (candidates.length === 0) {
+                core.info('no open Dependabot PRs; nothing to do');
+                return;
+              }
             }
 
-            const prs = (await github.rest.pulls.list({ owner, repo, state: 'open' })).data;
-            for (const pr of prs) {
-              if (pr.user?.login !== 'dependabot[bot]') continue;
-
-              const { data: runs } = await github.rest.checks.listForRef({
+            for (const candidate of candidates) {
+              const { data: pr } = await github.rest.pulls.get({
                 owner,
                 repo,
-                ref: pr.head.sha,
+                pull_number: candidate.number,
               });
-              if (runs.total_count === 0) {
-                core.info(`#${pr.number}: no check runs on ${pr.head.sha} yet; waiting`);
-                continue;
-              }
+              if (pr.state !== 'open' || pr.draft || !pr.head) continue;
 
-              const notGood = runs.check_runs.filter(
-                (c) =>
-                  c.status !== 'completed' ||
-                  !['success', 'skipped', 'neutral'].includes(c.conclusion),
-              );
-              const anySuccess = runs.check_runs.some((c) => c.conclusion === 'success');
-              if (notGood.length > 0 || !anySuccess) {
-                const pending = runs.check_runs.filter((c) => c.status !== 'completed').length;
-                const failed = notGood.filter(
-                  (c) => c.status === 'completed' && !['success', 'skipped', 'neutral'].includes(c.conclusion),
+              // Primary gate: the PR's own status rollup (no Checks API
+              // dependency). Empty rollup => fall back to the Checks API.
+              const rollup = pr.status_check_rollup ?? [];
+              let green = false;
+              if (rollup.length > 0) {
+                green =
+                  rollup.every((c) => c.state === 'completed') &&
+                  rollup.every((c) => c.conclusion !== null && GOOD.includes(c.conclusion)) &&
+                  rollup.some((c) => c.conclusion === 'success');
+              }
+              if (!green) {
+                try {
+                  const { data: runs } = await github.rest.checks.listForRef({
+                    owner,
+                    repo,
+                    ref: pr.head.sha,
+                  });
+                  if (runs.total_count > 0) {
+                    const notGood = runs.check_runs.filter(
+                      (c) => c.status !== 'completed' || !GOOD.includes(c.conclusion),
+                    );
+                    green =
+                      notGood.length === 0 &&
+                      runs.check_runs.some((c) => c.conclusion === 'success');
+                  }
+                } catch {
+                  // 404 => no check runs for this SHA yet.
+                }
+              }
+              if (!green) {
+                const pending = rollup.filter((c) => c.state !== 'completed').length;
+                const failing = rollup.filter(
+                  (c) => c.state === 'completed' && !GOOD.includes(c.conclusion),
                 ).length;
                 core.info(
-                  `#${pr.number}: not green yet (pending=${pending}, failing=${failed}); waiting`,
+                  `#${pr.number}: not green yet (pending=${pending}, failing=${failing}); waiting`,
                 );
                 continue;
               }
 
-              const { data: current } = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: pr.number,
-              });
-              if (!current.mergeable || current.draft) {
-                core.info(`#${pr.number}: not mergeable (conflict or draft); skipping`);
+              if (pr.mergeable === null || !pr.mergeable) {
+                core.info(`#${pr.number}: not mergeable (conflict or still computing); skipping`);
                 continue;
               }
 
@@ -98,13 +136,13 @@ jobs:
                   pull_number: pr.number,
                   merge_method: 'squash',
                 });
-                core.info(`merged #${pr.number} (${pr.head.ref}) — full CI green on ${pr.head.sha}`);
+                core.info(`merged #${pr.number} (${pr.head.ref}) — full CI green`);
               } catch (e) {
-                // 409/404: another run already merged or the PR was closed.
+                // 409/404: another run already merged it or it was closed.
                 if (e.status === 409 || e.status === 404) {
                   core.info(`#${pr.number}: already merged or closed; nothing to do`);
                 } else {
-                  throw e;
+                  core.setFailed(`merge of #${pr.number} failed: ${e.message}`);
                 }
               }
             }
