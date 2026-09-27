@@ -1,0 +1,25 @@
+# Dependabot: keeps dependencies current by raising pull requests.
+#
+# Merging is handled by the "Dependabot auto-merge" workflow
+# (.github/workflows/dependabot-auto-merge.yml): a PR is merged only once
+# the full CI suite on its head SHA is green (WASM core build + typecheck +
+# unit tests + E2E). A failing or still-running check keeps the PR open.
+version: 2
+updates:
+  # npm packages (pnpm lockfile) — the SolidStart app
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: weekly
+
+  # GitHub Actions used by .github/workflows/ci.yml
+  - package-ecosystem: 'github-actions'
+    directory: '/.github/workflows'
+    schedule:
+      interval: weekly
+
+  # Rust core built to WASM in CI (wasm/pdfcore)
+  - package-ecosystem: 'cargo'
+    directory: '/wasm/pdfcore'
+    schedule:
+      interval: weekly

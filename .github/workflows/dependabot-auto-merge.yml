@@ -1,0 +1,110 @@
+# Auto-merge Dependabot PRs once the full CI suite is green on the PR head.
+#
+# Trigger model:
+#   - check_run:completed — fires as each CI job finishes on a PR; merges as
+#     soon as the last required check passes (no polling delay).
+#   - schedule — a sweep as a backstop in case a completion event is missed.
+#
+# Merge gate (all of):
+#   - at least one check ran on the PR head SHA (a broken workflow file
+#     produces no checks and therefore never merges),
+#   - every check on that SHA is completed with success/skipped/neutral
+#     (the Pages deploy job is intentionally skipped on PRs),
+#   - no pending or failing checks,
+#   - the PR is open, not a draft and mergeable (no conflicts).
+#
+# Merge method: squash, so the history keeps one "Bump X from A to B" commit.
+name: Dependabot auto-merge
+
+on:
+  check_run:
+    types: [completed]
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: dependabot-auto-merge
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            // check_run events: only sweep when the finished check belongs to
+            // a PR (push runs on main etc. must not trigger merge logic).
+            if (
+              context.eventName !== 'schedule' &&
+              (!context.payload.check_run?.pull_requests ||
+                context.payload.check_run.pull_requests.length === 0)
+            ) {
+              core.info('check_run is not attached to a PR; nothing to do');
+              return;
+            }
+
+            const prs = (await github.rest.pulls.list({ owner, repo, state: 'open' })).data;
+            for (const pr of prs) {
+              if (pr.user?.login !== 'dependabot[bot]') continue;
+
+              const { data: runs } = await github.rest.checks.listForRef({
+                owner,
+                repo,
+                ref: pr.head.sha,
+              });
+              if (runs.total_count === 0) {
+                core.info(`#${pr.number}: no check runs on ${pr.head.sha} yet; waiting`);
+                continue;
+              }
+
+              const notGood = runs.check_runs.filter(
+                (c) =>
+                  c.status !== 'completed' ||
+                  !['success', 'skipped', 'neutral'].includes(c.conclusion),
+              );
+              const anySuccess = runs.check_runs.some((c) => c.conclusion === 'success');
+              if (notGood.length > 0 || !anySuccess) {
+                const pending = runs.check_runs.filter((c) => c.status !== 'completed').length;
+                const failed = notGood.filter(
+                  (c) => c.status === 'completed' && !['success', 'skipped', 'neutral'].includes(c.conclusion),
+                ).length;
+                core.info(
+                  `#${pr.number}: not green yet (pending=${pending}, failing=${failed}); waiting`,
+                );
+                continue;
+              }
+
+              const { data: current } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pr.number,
+              });
+              if (!current.mergeable || current.draft) {
+                core.info(`#${pr.number}: not mergeable (conflict or draft); skipping`);
+                continue;
+              }
+
+              try {
+                await github.rest.pulls.merge({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                  merge_method: 'squash',
+                });
+                core.info(`merged #${pr.number} (${pr.head.ref}) — full CI green on ${pr.head.sha}`);
+              } catch (e) {
+                // 409/404: another run already merged or the PR was closed.
+                if (e.status === 409 || e.status === 404) {
+                  core.info(`#${pr.number}: already merged or closed; nothing to do`);
+                } else {
+                  throw e;
+                }
+              }
+            }
