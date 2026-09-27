@@ -446,7 +446,10 @@ await flow('encrypted PDF graceful error', async (page) => {
   if (fresh.status === 301 && freshLoc.startsWith('https://pdf.bugaboxes.com'))
     ok('redirect /pdfboogie/ (new) → custom domain', `${fresh.status} → ${freshLoc}`);
   else if (fresh.status === 404)
-    ok('redirect /pdfboogie/ (new) → custom domain', '404 — rename still propagating (legacy path OK)');
+    ok(
+      'redirect /pdfboogie/ (new) → custom domain',
+      '404 — rename still propagating (legacy path OK)',
+    );
   else fail('redirect /pdfboogie/ (new) → custom domain', `${fresh.status} → ${freshLoc}`);
 }
 
