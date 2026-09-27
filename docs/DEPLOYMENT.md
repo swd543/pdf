@@ -15,17 +15,19 @@ manual artifact uploading.
 
 One base path for both: the custom domain `pdf.bugaboxes.com` is bound to
 the site's **root** by GitHub, so the live site and the E2E harness (the
-Playwright `baseURL`) both serve it from `/`. The default URLs
-`swd543.github.io/pdfboogie/…` and the legacy `swd543.github.io/pdf/…`
-301-redirect to `pdf.bugaboxes.com/…` (GitHub's custom-domain behavior — the
-prefix is dropped), which is also why the canonical/SEO URLs are the
-`pdf.bugaboxes.com` ones. Note: after a repo rename GitHub can take a while
-to provision the *new* project-page path (it 404s with GitHub's stock page
-until then — the legacy path and the custom domain work throughout); the
-live check treats that 404 as "still propagating" and fails on anything
-else. If the custom domain is ever removed, the site would need
-`VITE_BASE=/pdfboogie/` to work directly under
-`swd543.github.io/pdfboogie/`.
+Playwright `baseURL`) both serve it from `/`. The GitHub Pages project-page
+URL `swd543.github.io/pdfboogie/…` 301-redirects to `pdf.bugaboxes.com/…`
+(GitHub's custom-domain behavior — the prefix is dropped), which is also why
+the canonical/SEO URLs are the `pdf.bugaboxes.com` ones. After the repo was
+renamed `pdf` → `pdfboogie`, the *old* project-page path
+`swd543.github.io/pdf/…` is retired by GitHub — it serves GitHub's stock 404
+page (not our site), so any deep links to it should be rewritten to the
+custom domain. The old repo URL `github.com/swd543/pdf` still 301s to
+`github.com/swd543/pdfboogie` (GitHub keeps old repo names). The live check
+asserts the current `/pdfboogie/` 301 and treats the retired `/pdf/` path as
+404 (expected) or 301 (if GitHub ever keeps it). If the custom domain is
+ever removed, the site would need `VITE_BASE=/pdfboogie/` to work directly
+under `swd543.github.io/pdfboogie/`.
 
 ## Manual steps (once per repo)
 

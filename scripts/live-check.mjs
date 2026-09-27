@@ -428,29 +428,30 @@ await flow('encrypted PDF graceful error', async (page) => {
 });
 
 /* 12. Redirects from the default host -------------------------------------- */
-// The repo was renamed `pdf` → `pdfboogie`. The current project page is
-// swd543.github.io/pdfboogie/; GitHub keeps the old /pdf/ path 301-ing as
-// well (bookmarks/links). The custom domain redirect for the NEW path is
-// provisioned by GitHub after the rename propagates — until then it 404s
-// (GitHub's stock page, not ours), which is acceptable; anything else is
-// not.
+// The repo is `swd543/pdfboogie` (renamed from `pdf`; GitHub keeps the old
+// repo URL 301-ing to the new one). The current GitHub Pages project page
+// is swd543.github.io/pdfboogie/ — with the custom domain bound it 301s to
+// pdf.bugaboxes.com. The OLD project path swd543.github.io/pdf/ is retired
+// by GitHub after a rename (GitHub's stock 404 page — not served from our
+// artifact), so a 404 there is expected; a 301 is also acceptable if
+// GitHub ever keeps it. Anything else is not.
 {
-  const legacy = await fetch('https://swd543.github.io/pdf/', { redirect: 'manual' });
-  const legacyLoc = legacy.headers.get('location') || '';
-  if (legacy.status === 301 && legacyLoc.startsWith('https://pdf.bugaboxes.com'))
-    ok('redirect /pdf/ (legacy) → custom domain', `${legacy.status} → ${legacyLoc}`);
-  else fail('redirect /pdf/ (legacy) → custom domain', `${legacy.status} → ${legacyLoc}`);
+  const current = await fetch('https://swd543.github.io/pdfboogie/', { redirect: 'manual' });
+  const currentLoc = current.headers.get('location') || '';
+  if (current.status === 301 && currentLoc.startsWith('https://pdf.bugaboxes.com'))
+    ok('redirect /pdfboogie/ (current) → custom domain', `${current.status} → ${currentLoc}`);
+  else fail('redirect /pdfboogie/ (current) → custom domain', `${current.status} → ${currentLoc}`);
 
-  const fresh = await fetch('https://swd543.github.io/pdfboogie/', { redirect: 'manual' });
-  const freshLoc = fresh.headers.get('location') || '';
-  if (fresh.status === 301 && freshLoc.startsWith('https://pdf.bugaboxes.com'))
-    ok('redirect /pdfboogie/ (new) → custom domain', `${fresh.status} → ${freshLoc}`);
-  else if (fresh.status === 404)
+  const old = await fetch('https://swd543.github.io/pdf/', { redirect: 'manual' });
+  const oldLoc = old.headers.get('location') || '';
+  if (old.status === 404)
     ok(
-      'redirect /pdfboogie/ (new) → custom domain',
-      '404 — rename still propagating (legacy path OK)',
+      'redirect /pdf/ (retired old path)',
+      '404 — expected: GitHub retires old project-page paths',
     );
-  else fail('redirect /pdfboogie/ (new) → custom domain', `${fresh.status} → ${freshLoc}`);
+  else if (old.status === 301 && oldLoc.startsWith('https://pdf.bugaboxes.com'))
+    ok('redirect /pdf/ (retired old path)', `301 → ${oldLoc} (GitHub still keeps it)`);
+  else fail('redirect /pdf/ (retired old path)', `${old.status} → ${oldLoc}`);
 }
 
 /* 13. Ad network requests (must be zero — ads inert, no client id) --------- */
