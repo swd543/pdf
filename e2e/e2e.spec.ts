@@ -998,6 +998,8 @@ test.describe('downloads are explicit', () => {
     const assertClean = expectClean(page);
     await page.goto('/pdf-compress');
     await dropFixtures(page, ['text-1p.pdf']);
+    // static state: the Related links are visible (chain not yet active)
+    await expect(page.locator('.related a')).not.toHaveCount(0);
     const downloads: string[] = [];
     page.on('download', (d) => {
       downloads.push(d.suggestedFilename());

@@ -88,50 +88,45 @@ export function ChainSection(props: {
   return (
     <Show when={hasChain() || props.related.length > 0}>
       <div class="related" classList={{ 'has-chain': hasChain() }}>
-        <Show when={hasChain()} keyed>
-          {(isChain) =>
-            isChain ? (
-              <Show when={r()}>
-                {(res) => (
-                  <>
-                    <span class="related-label">
-                      Continue with <strong>{res().name}</strong>:
-                    </span>
-                    {pdfChainLinks(location.pathname).map((l) => (
-                      <button
-                        type="button"
-                        class="chain-link"
-                        aria-label={`Open ${l.label} with ${res().name}`}
-                        onClick={() => {
-                          const v = r();
-                          if (!v) return;
-                          const blob = new Blob([v.bytes as BlobPart], {
-                            type: 'application/pdf',
-                          });
-                          setChainedFile({
-                            blob,
-                            name: v.name,
-                            type: 'application/pdf',
-                            size: blob.size,
-                          });
-                          navigate(l.path);
-                        }}
-                      >
-                        {l.label}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </Show>
-            ) : (
+        <Show when={hasChain()}>
+          <Show when={r()}>
+            {(res) => (
               <>
-                <span class="related-label">Related:</span>
-                {props.related.map((x) => (
-                  <a href={x.path}>{x.label}</a>
+                <span class="related-label">
+                  Continue with <strong>{res().name}</strong>:
+                </span>
+                {pdfChainLinks(location.pathname).map((l) => (
+                  <button
+                    type="button"
+                    class="chain-link"
+                    aria-label={`Open ${l.label} with ${res().name}`}
+                    onClick={() => {
+                      const v = r();
+                      if (!v) return;
+                      const blob = new Blob([v.bytes as BlobPart], {
+                        type: 'application/pdf',
+                      });
+                      setChainedFile({
+                        blob,
+                        name: v.name,
+                        type: 'application/pdf',
+                        size: blob.size,
+                      });
+                      navigate(l.path);
+                    }}
+                  >
+                    {l.label}
+                  </button>
                 ))}
               </>
-            )
-          }
+            )}
+          </Show>
+        </Show>
+        <Show when={!hasChain()}>
+          <span class="related-label">Related:</span>
+          {props.related.map((x) => (
+            <a href={x.path}>{x.label}</a>
+          ))}
         </Show>
       </div>
     </Show>
