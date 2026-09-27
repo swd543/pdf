@@ -135,8 +135,11 @@ jobs:
               // Update the branch to latest main; CI re-runs and the
               // workflow_run trigger re-evaluates. Guarded so we never
               // hot-loop: only behind-branches, and not if the PR was
-              // updated within the last 30 minutes.
-              if (pr.mergeable_state === 'blocked' && pr.maintainer_can_modify) {
+              // updated within the last 30 minutes. (No
+              // maintainer_can_modify check: for same-repo Dependabot PRs
+              // that flag is always false while the workflow token can
+              // still fast-forward the branch via update-branch.)
+              if (pr.mergeable_state === 'blocked') {
                 let behind = 0;
                 try {
                   const { data: gql } = await github.graphql(
@@ -186,7 +189,9 @@ jobs:
                 if (e.status === 409 || e.status === 404) {
                   core.info(`#${pr.number}: already merged or closed; nothing to do`);
                 } else {
-                  core.setFailed(`merge of #${pr.number} failed: ${e.message}`);
+                  // Blocked (e.g. stale base checks) or transiently
+                  // unavailable: expected states, not a failure.
+                  core.info(`#${pr.number}: merge blocked for now (${e.message}); waiting`);
                 }
               }
             }
