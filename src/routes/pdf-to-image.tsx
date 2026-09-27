@@ -8,6 +8,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createMemo, createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { Canonical } from '~/components/Canonical';
 import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
 import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import { SinglePdfInput } from '~/components/SinglePdfInput';
@@ -210,10 +211,11 @@ export default function PdfToImagePage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/pdf-to-image" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={`${siteUrl}/pdf-to-image`} />
+      <Meta property="og:url" content={`${siteUrl}/pdf-to-image/`} />
       {meta.image && <Meta property="og:image" content={meta.image} />}
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/pdf-to-image'))} />
 

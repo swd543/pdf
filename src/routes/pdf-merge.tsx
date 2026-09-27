@@ -21,6 +21,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createMemo, createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { Canonical } from '~/components/Canonical';
 import { ChainNote } from '~/components/ChainBar';
 import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
 
@@ -533,10 +534,11 @@ export default function MergePage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/pdf-merge" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={`${siteUrl}/pdf-merge`} />
+      <Meta property="og:url" content={`${siteUrl}/pdf-merge/`} />
       {meta.image && <Meta property="og:image" content={meta.image} />}
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/pdf-merge'))} />
 

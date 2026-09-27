@@ -16,7 +16,12 @@ and JSON-LD. For every tool page that includes:
   operating system, free price specification) and a `FAQPage` block answering
   the privacy/privacy-adjacent questions people ask about these tools
   ("Does it upload my file?", "Is it free?", …).
-- Canonical URL + `robots` meta.
+- **Canonical URL** — `<link rel="canonical">` (via `src/components/Canonical.tsx`)
+  points at the custom-domain, trailing-slash form of the route — the exact
+  URL the static server serves (no-slash requests 301 to it). `og:url` and
+  the sitemap use the same trailing-slash form, so the index stays pinned to
+  one URL despite the GitHub Pages alias (`swd543.github.io/pdfboogie/…`
+  301s to the custom domain).
 
 Titles are rendered server-side during prerendering (via `@solidjs/meta`),
 so they appear in the static HTML — not just after hydration.

@@ -3,6 +3,7 @@
  * surface (AdSense applications require a reachable contact point).
  */
 import { Meta, Title } from '@solidjs/meta';
+import { Canonical } from '~/components/Canonical';
 import { site, siteUrl } from '~/site/config';
 import { jsonLdFor, routeMeta } from '~/site/seo';
 
@@ -11,10 +12,11 @@ export default function PrivacyPage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/privacy" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={`${siteUrl}/privacy`} />
+      <Meta property="og:url" content={`${siteUrl}/privacy/`} />
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/privacy'))} />
 
       <div class="prose">

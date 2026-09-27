@@ -3,6 +3,7 @@
  */
 import { Meta, Title } from '@solidjs/meta';
 import { AdSlot } from '~/components/AdSlot';
+import { Canonical } from '~/components/Canonical';
 import {
   CompressIcon,
   DocumentIcon,
@@ -30,10 +31,11 @@ export default function HomePage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={siteUrl} />
+      <Meta property="og:url" content={`${siteUrl}/`} />
       {meta.image && <Meta property="og:image" content={meta.image} />}
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/'))} />
 

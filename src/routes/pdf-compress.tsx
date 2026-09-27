@@ -9,6 +9,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createSignal, For, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { Canonical } from '~/components/Canonical';
 import { AlertIcon, DownloadIcon, SpinnerIcon } from '~/components/Icons';
 import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import { SinglePdfInput } from '~/components/SinglePdfInput';
@@ -179,10 +180,11 @@ export default function PdfCompressPage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/pdf-compress" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={`${siteUrl}/pdf-compress`} />
+      <Meta property="og:url" content={`${siteUrl}/pdf-compress/`} />
       {meta.image && <Meta property="og:image" content={meta.image} />}
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/pdf-compress'))} />
 

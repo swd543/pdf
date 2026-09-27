@@ -42,14 +42,14 @@ console.log('[postbuild] copied .output/public → dist');
 /* ---------------------------------------------------------------- */
 const routes = [
   '/',
-  '/pdf-compress',
-  '/pdf-merge',
-  '/pdf-combine',
-  '/image-to-pdf',
-  '/pdf-to-image',
-  '/pdf-to-doc',
-  '/pdf-sign',
-  '/privacy',
+  '/pdf-compress/',
+  '/pdf-merge/',
+  '/pdf-combine/',
+  '/image-to-pdf/',
+  '/pdf-to-image/',
+  '/pdf-to-doc/',
+  '/pdf-sign/',
+  '/privacy/',
 ];
 const today = new Date().toISOString().slice(0, 10);
 const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -57,7 +57,7 @@ const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 ${routes
   .map(
     (r) => `  <url>
-    <loc>${siteUrl}${r === '/' ? '' : r}</loc>
+    <loc>${r === '/' ? `${siteUrl}/` : `${siteUrl}${r}`}</loc>
     <lastmod>${today}</lastmod>
     <changefreq>weekly</changefreq>
   </url>`,

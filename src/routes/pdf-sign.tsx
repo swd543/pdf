@@ -13,6 +13,7 @@
 import { Meta, Title } from '@solidjs/meta';
 import { createSignal, onCleanup, Show } from 'solid-js';
 import { AdSlot } from '~/components/AdSlot';
+import { Canonical } from '~/components/Canonical';
 import { AlertIcon } from '~/components/Icons';
 import { ProgressBar, ToolColumns, ToolPage } from '~/components/Shell';
 import type { SignaturePadApi } from '~/components/SignaturePad';
@@ -408,10 +409,11 @@ export default function PdfSignPage() {
   return (
     <>
       <Title>{meta.title}</Title>
+      <Canonical path="/pdf-sign" />
       <Meta name="description" content={meta.description} />
       <Meta property="og:title" content={meta.title} />
       <Meta property="og:description" content={meta.description} />
-      <Meta property="og:url" content={`${siteUrl}/pdf-sign`} />
+      <Meta property="og:url" content={`${siteUrl}/pdf-sign/`} />
       {meta.image && <Meta property="og:image" content={meta.image} />}
       <script type="application/ld+json" innerHTML={JSON.stringify(jsonLdFor('/pdf-sign'))} />
 
