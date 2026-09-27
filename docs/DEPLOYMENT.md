@@ -19,8 +19,12 @@ Playwright `baseURL`) both serve it from `/`. The default URLs
 `swd543.github.io/pdfboogie/…` and the legacy `swd543.github.io/pdf/…`
 301-redirect to `pdf.bugaboxes.com/…` (GitHub's custom-domain behavior — the
 prefix is dropped), which is also why the canonical/SEO URLs are the
-`pdf.bugaboxes.com` ones. If the custom domain is ever removed, the site
-would need `VITE_BASE=/pdfboogie/` to work directly under
+`pdf.bugaboxes.com` ones. Note: after a repo rename GitHub can take a while
+to provision the *new* project-page path (it 404s with GitHub's stock page
+until then — the legacy path and the custom domain work throughout); the
+live check treats that 404 as "still propagating" and fails on anything
+else. If the custom domain is ever removed, the site would need
+`VITE_BASE=/pdfboogie/` to work directly under
 `swd543.github.io/pdfboogie/`.
 
 ## Manual steps (once per repo)
