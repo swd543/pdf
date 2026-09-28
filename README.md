@@ -6,6 +6,8 @@ Private PDF tools for the browser. Every operation (compressing, merging,
 converting, signing) runs entirely on your machine. Your documents are never
 uploaded anywhere: there is no backend to upload to.
 
+**Live at [pdf.bugaboxes.com](https://pdf.bugaboxes.com).**
+
 - **Compress PDF**: lossless re-save (custom Rust/WASM core) or a strong
   visual-quality mode that rebuilds pages as optimized images. A sensible
   mode is auto-picked per document (image-heavy → strong, text/vector →
