@@ -67,7 +67,7 @@ export default function HomePage() {
             >
               <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
             </svg>
-            Free &amp; open source
+            Free
           </span>
           <span class="badge">
             <svg

@@ -92,12 +92,6 @@ export default function PrivacyPage() {
           <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. We aim to reply within a
           few days.
         </p>
-
-        <h2>Open source</h2>
-        <p>
-          The site is open source (MIT). Inspect the code, verify the claims, or run it yourself
-          with a single <code>pnpm build</code>.
-        </p>
       </div>
     </>
   );
